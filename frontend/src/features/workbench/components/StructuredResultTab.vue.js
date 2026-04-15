@@ -1,15 +1,24 @@
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 const props = defineProps();
 const europeanDetails = computed(() => props.structuredResult?.european_odds_details ?? []);
 const asianDetails = computed(() => props.structuredResult?.asian_handicap_details ?? []);
 const fetchedDetailCount = computed(() => [...europeanDetails.value, ...asianDetails.value].filter((item) => item.page?.fetched).length);
 const matchedDetailRecordCount = computed(() => [...europeanDetails.value, ...asianDetails.value].reduce((sum, item) => sum + (item.matched_records_count ?? 0), 0));
+const europeanFetchedCount = computed(() => europeanDetails.value.filter((item) => item.page?.fetched).length);
+const asianFetchedCount = computed(() => asianDetails.value.filter((item) => item.page?.fetched).length);
+const europeanMatchedCount = computed(() => europeanDetails.value.reduce((sum, item) => sum + (item.matched_records_count ?? 0), 0));
+const asianMatchedCount = computed(() => asianDetails.value.reduce((sum, item) => sum + (item.matched_records_count ?? 0), 0));
 const pageReadyCount = computed(() => Object.values(props.structuredResult?.pages ?? {}).filter((item) => item?.fetched).length);
+const pageTotalCount = computed(() => Object.keys(props.structuredResult?.pages ?? {}).length);
 const structuredSummaryCards = computed(() => [
     ...props.overviewCards,
     { label: '已抓详情页', value: `${fetchedDetailCount.value}` },
     { label: '命中详情记录', value: `${matchedDetailRecordCount.value}` },
 ]);
+const europeanExpandedMap = ref({});
+const asianExpandedMap = ref({});
+const allEuropeanExpanded = computed(() => europeanDetails.value.length > 0 && europeanDetails.value.every((detail, index) => isEuropeanExpanded(detail, index)));
+const allAsianExpanded = computed(() => asianDetails.value.length > 0 && asianDetails.value.every((detail, index) => isAsianExpanded(detail, index)));
 function formatNumber(value, digits = 2) {
     return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : '-';
 }
@@ -22,13 +31,66 @@ function formatProbability(value) {
 function formatBoolean(value) {
     return value ? '是' : '否';
 }
+function formatBeijingTime(value) {
+    if (!value) {
+        return null;
+    }
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return formatText(value);
+    }
+    return new Intl.DateTimeFormat('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+    }).format(parsed).replace(/\//g, '-');
+}
 function formatRangeText() {
-    if (!props.structuredResult?.anchor_start_time)
+    if (!props.structuredResult?.anchor_start_time && !props.structuredResult?.anchor_start_time_display)
         return '未设置时间区间';
-    return `${props.structuredResult.anchor_start_time}${props.structuredResult.anchor_end_time ? ` → ${props.structuredResult.anchor_end_time}` : ' → 未设置结束时间'}`;
+    const startText = formatText(props.structuredResult?.anchor_start_time_display || formatBeijingTime(props.structuredResult?.anchor_start_time));
+    const endText = props.structuredResult?.anchor_end_time_display
+        || formatBeijingTime(props.structuredResult?.anchor_end_time)
+        || '未设置结束时间';
+    return `北京时间 ${startText} → ${endText}`;
 }
 function getChangeTimeDisplay(record) {
     return formatText(record.change_time_display || record.change_time);
+}
+function getDetailKey(prefix, institutionId, index) {
+    return `${prefix}-${institutionId ?? 'unknown'}-${index}`;
+}
+function isEuropeanExpanded(detail, index) {
+    const key = getDetailKey('eu', detail.institution_id, index);
+    return europeanExpandedMap.value[key] ?? true;
+}
+function isAsianExpanded(detail, index) {
+    const key = getDetailKey('ah', detail.institution_id, index);
+    return asianExpandedMap.value[key] ?? true;
+}
+function toggleEuropeanExpanded(detail, index) {
+    const key = getDetailKey('eu', detail.institution_id, index);
+    europeanExpandedMap.value = {
+        ...europeanExpandedMap.value,
+        [key]: !isEuropeanExpanded(detail, index),
+    };
+}
+function toggleAsianExpanded(detail, index) {
+    const key = getDetailKey('ah', detail.institution_id, index);
+    asianExpandedMap.value = {
+        ...asianExpandedMap.value,
+        [key]: !isAsianExpanded(detail, index),
+    };
+}
+function setAllEuropeanExpanded(expanded) {
+    europeanExpandedMap.value = Object.fromEntries(europeanDetails.value.map((detail, index) => [getDetailKey('eu', detail.institution_id, index), expanded]));
+}
+function setAllAsianExpanded(expanded) {
+    asianExpandedMap.value = Object.fromEntries(asianDetails.value.map((detail, index) => [getDetailKey('ah', detail.institution_id, index), expanded]));
 }
 function getEuropeanRecordFields(record) {
     return [
@@ -71,12 +133,15 @@ __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElement
     ...{ class: "secondary small-button" },
 });
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "summary-grid result-overview-grid structured-overview-grid" },
+    ...{ class: "result-content-card structured-summary-strip-card" },
+});
+__VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+    ...{ class: "structured-summary-strip" },
 });
 for (const [item] of __VLS_getVForSourceType((__VLS_ctx.structuredSummaryCards))) {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
         key: (item.label),
-        ...{ class: "summary-card result-summary-card" },
+        ...{ class: "structured-summary-inline-item" },
     });
     __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
     (item.label);
@@ -84,73 +149,98 @@ for (const [item] of __VLS_getVForSourceType((__VLS_ctx.structuredSummaryCards))
     (item.value);
 }
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "structured-highlight-grid" },
+    ...{ class: "structured-highlight-grid structured-dashboard-grid" },
 });
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "result-content-card structured-highlight-card" },
+    ...{ class: "result-content-card structured-highlight-card structured-dashboard-card" },
 });
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "result-card-head compact-head" },
+    ...{ class: "structured-dashboard-head" },
 });
-__VLS_asFunctionalElement(__VLS_intrinsicElements.h4, __VLS_intrinsicElements.h4)({});
-__VLS_asFunctionalElement(__VLS_intrinsicElements.p, __VLS_intrinsicElements.p)({});
-__VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "structured-range-text" },
+__VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
+    ...{ class: "structured-dashboard-label" },
 });
+__VLS_asFunctionalElement(__VLS_intrinsicElements.strong, __VLS_intrinsicElements.strong)({});
 (__VLS_ctx.formatRangeText());
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "result-content-card structured-highlight-card" },
+    ...{ class: "result-content-card structured-highlight-card structured-dashboard-card" },
 });
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "result-card-head compact-head" },
+    ...{ class: "structured-dashboard-head" },
 });
-__VLS_asFunctionalElement(__VLS_intrinsicElements.h4, __VLS_intrinsicElements.h4)({});
-__VLS_asFunctionalElement(__VLS_intrinsicElements.p, __VLS_intrinsicElements.p)({});
-__VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "structured-metric-line" },
+__VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
+    ...{ class: "structured-dashboard-label" },
 });
 __VLS_asFunctionalElement(__VLS_intrinsicElements.strong, __VLS_intrinsicElements.strong)({});
-(__VLS_ctx.formatNumber(props.structuredResult?.average_european_odds?.latest_home));
+(__VLS_ctx.europeanMatchedCount);
+__VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+    ...{ class: "structured-dashboard-metrics" },
+});
+__VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+    ...{ class: "structured-dashboard-metric" },
+});
 __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
 __VLS_asFunctionalElement(__VLS_intrinsicElements.strong, __VLS_intrinsicElements.strong)({});
-(__VLS_ctx.formatNumber(props.structuredResult?.average_european_odds?.latest_draw));
+(__VLS_ctx.europeanFetchedCount);
+__VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+    ...{ class: "structured-dashboard-metric" },
+});
 __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
 __VLS_asFunctionalElement(__VLS_intrinsicElements.strong, __VLS_intrinsicElements.strong)({});
-(__VLS_ctx.formatNumber(props.structuredResult?.average_european_odds?.latest_away));
-__VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
+(__VLS_ctx.europeanDetails.length);
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "result-content-card structured-highlight-card" },
+    ...{ class: "result-content-card structured-highlight-card structured-dashboard-card" },
 });
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "result-card-head compact-head" },
+    ...{ class: "structured-dashboard-head" },
 });
-__VLS_asFunctionalElement(__VLS_intrinsicElements.h4, __VLS_intrinsicElements.h4)({});
-__VLS_asFunctionalElement(__VLS_intrinsicElements.p, __VLS_intrinsicElements.p)({});
-__VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "structured-metric-line structured-metric-line-asian" },
+__VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
+    ...{ class: "structured-dashboard-label" },
 });
 __VLS_asFunctionalElement(__VLS_intrinsicElements.strong, __VLS_intrinsicElements.strong)({});
-(__VLS_ctx.formatNumber(props.structuredResult?.average_asian_handicap?.latest_home_water));
+(__VLS_ctx.asianMatchedCount);
+__VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+    ...{ class: "structured-dashboard-metrics" },
+});
+__VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+    ...{ class: "structured-dashboard-metric" },
+});
 __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
 __VLS_asFunctionalElement(__VLS_intrinsicElements.strong, __VLS_intrinsicElements.strong)({});
-(props.structuredResult?.average_asian_handicap?.latest_handicap || '-');
+(__VLS_ctx.asianFetchedCount);
+__VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+    ...{ class: "structured-dashboard-metric" },
+});
 __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
 __VLS_asFunctionalElement(__VLS_intrinsicElements.strong, __VLS_intrinsicElements.strong)({});
-(__VLS_ctx.formatNumber(props.structuredResult?.average_asian_handicap?.latest_away_water));
-__VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
+(__VLS_ctx.asianDetails.length);
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "result-content-card structured-highlight-card" },
+    ...{ class: "result-content-card structured-highlight-card structured-dashboard-card" },
 });
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "result-card-head compact-head" },
+    ...{ class: "structured-dashboard-head" },
 });
-__VLS_asFunctionalElement(__VLS_intrinsicElements.h4, __VLS_intrinsicElements.h4)({});
-__VLS_asFunctionalElement(__VLS_intrinsicElements.p, __VLS_intrinsicElements.p)({});
-__VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "structured-range-text" },
+__VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
+    ...{ class: "structured-dashboard-label" },
 });
+__VLS_asFunctionalElement(__VLS_intrinsicElements.strong, __VLS_intrinsicElements.strong)({});
 (__VLS_ctx.pageReadyCount);
-(Object.keys(props.structuredResult?.pages ?? {}).length);
+(__VLS_ctx.pageTotalCount);
+__VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+    ...{ class: "structured-dashboard-metrics" },
+});
+__VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+    ...{ class: "structured-dashboard-metric" },
+});
+__VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
+__VLS_asFunctionalElement(__VLS_intrinsicElements.strong, __VLS_intrinsicElements.strong)({});
+(__VLS_ctx.fetchedDetailCount);
+__VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+    ...{ class: "structured-dashboard-metric" },
+});
+__VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
+__VLS_asFunctionalElement(__VLS_intrinsicElements.strong, __VLS_intrinsicElements.strong)({});
+(__VLS_ctx.matchedDetailRecordCount);
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
     ...{ class: "structured-detail-shell" },
 });
@@ -158,15 +248,24 @@ __VLS_asFunctionalElement(__VLS_intrinsicElements.section, __VLS_intrinsicElemen
     ...{ class: "result-content-card structured-detail-section" },
 });
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "result-card-head compact-head" },
+    ...{ class: "result-card-head compact-head structured-detail-toolbar" },
 });
+__VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({});
 __VLS_asFunctionalElement(__VLS_intrinsicElements.h4, __VLS_intrinsicElements.h4)({});
 __VLS_asFunctionalElement(__VLS_intrinsicElements.p, __VLS_intrinsicElements.p)({});
+__VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
+    ...{ onClick: (...[$event]) => {
+            __VLS_ctx.setAllEuropeanExpanded(!__VLS_ctx.allEuropeanExpanded);
+        } },
+    ...{ class: "secondary small-button" },
+    disabled: (!__VLS_ctx.europeanDetails.length),
+});
+(__VLS_ctx.allEuropeanExpanded ? '全部收起' : '全部展开');
 if (__VLS_ctx.europeanDetails.length) {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
         ...{ class: "structured-detail-grid" },
     });
-    for (const [detail] of __VLS_getVForSourceType((__VLS_ctx.europeanDetails))) {
+    for (const [detail, index] of __VLS_getVForSourceType((__VLS_ctx.europeanDetails))) {
         __VLS_asFunctionalElement(__VLS_intrinsicElements.article, __VLS_intrinsicElements.article)({
             key: (`eu-${detail.institution_id}`),
             ...{ class: "structured-detail-card" },
@@ -180,17 +279,29 @@ if (__VLS_ctx.europeanDetails.length) {
         __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
         (detail.matched_records_count ?? 0);
         (detail.all_records_count ?? 0);
+        __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+            ...{ class: "structured-detail-actions" },
+        });
         __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
             ...{ class: (['status-badge', detail.page?.fetched ? 'success' : 'error']) },
         });
         (detail.page?.fetched ? '详情已抓取' : '详情失败');
+        __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
+            ...{ onClick: (...[$event]) => {
+                    if (!(__VLS_ctx.europeanDetails.length))
+                        return;
+                    __VLS_ctx.toggleEuropeanExpanded(detail, index);
+                } },
+            ...{ class: "secondary small-button structured-fold-button" },
+        });
+        (__VLS_ctx.isEuropeanExpanded(detail, index) ? '收起' : '展开');
         if (detail.page?.error_message) {
             __VLS_asFunctionalElement(__VLS_intrinsicElements.p, __VLS_intrinsicElements.p)({
                 ...{ class: "structured-detail-error" },
             });
             (detail.page.error_message);
         }
-        if (detail.records?.length) {
+        if (__VLS_ctx.isEuropeanExpanded(detail, index) && detail.records?.length) {
             __VLS_asFunctionalElement(__VLS_intrinsicElements.ul, __VLS_intrinsicElements.ul)({
                 ...{ class: "structured-record-list" },
             });
@@ -225,7 +336,7 @@ if (__VLS_ctx.europeanDetails.length) {
                 }
             }
         }
-        else {
+        else if (__VLS_ctx.isEuropeanExpanded(detail, index)) {
             __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
                 ...{ class: "structured-empty-text" },
             });
@@ -241,15 +352,24 @@ __VLS_asFunctionalElement(__VLS_intrinsicElements.section, __VLS_intrinsicElemen
     ...{ class: "result-content-card structured-detail-section" },
 });
 __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
-    ...{ class: "result-card-head compact-head" },
+    ...{ class: "result-card-head compact-head structured-detail-toolbar" },
 });
+__VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({});
 __VLS_asFunctionalElement(__VLS_intrinsicElements.h4, __VLS_intrinsicElements.h4)({});
 __VLS_asFunctionalElement(__VLS_intrinsicElements.p, __VLS_intrinsicElements.p)({});
+__VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
+    ...{ onClick: (...[$event]) => {
+            __VLS_ctx.setAllAsianExpanded(!__VLS_ctx.allAsianExpanded);
+        } },
+    ...{ class: "secondary small-button" },
+    disabled: (!__VLS_ctx.asianDetails.length),
+});
+(__VLS_ctx.allAsianExpanded ? '全部收起' : '全部展开');
 if (__VLS_ctx.asianDetails.length) {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
         ...{ class: "structured-detail-grid" },
     });
-    for (const [detail] of __VLS_getVForSourceType((__VLS_ctx.asianDetails))) {
+    for (const [detail, index] of __VLS_getVForSourceType((__VLS_ctx.asianDetails))) {
         __VLS_asFunctionalElement(__VLS_intrinsicElements.article, __VLS_intrinsicElements.article)({
             key: (`ah-${detail.institution_id}`),
             ...{ class: "structured-detail-card" },
@@ -263,17 +383,29 @@ if (__VLS_ctx.asianDetails.length) {
         __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
         (detail.matched_records_count ?? 0);
         (detail.all_records_count ?? 0);
+        __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+            ...{ class: "structured-detail-actions" },
+        });
         __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({
             ...{ class: (['status-badge', detail.page?.fetched ? 'success' : 'error']) },
         });
         (detail.page?.fetched ? '详情已抓取' : '详情失败');
+        __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
+            ...{ onClick: (...[$event]) => {
+                    if (!(__VLS_ctx.asianDetails.length))
+                        return;
+                    __VLS_ctx.toggleAsianExpanded(detail, index);
+                } },
+            ...{ class: "secondary small-button structured-fold-button" },
+        });
+        (__VLS_ctx.isAsianExpanded(detail, index) ? '收起' : '展开');
         if (detail.page?.error_message) {
             __VLS_asFunctionalElement(__VLS_intrinsicElements.p, __VLS_intrinsicElements.p)({
                 ...{ class: "structured-detail-error" },
             });
             (detail.page.error_message);
         }
-        if (detail.records?.length) {
+        if (__VLS_ctx.isAsianExpanded(detail, index) && detail.records?.length) {
             __VLS_asFunctionalElement(__VLS_intrinsicElements.ul, __VLS_intrinsicElements.ul)({
                 ...{ class: "structured-record-list" },
             });
@@ -308,7 +440,7 @@ if (__VLS_ctx.asianDetails.length) {
                 }
             }
         }
-        else {
+        else if (__VLS_ctx.isAsianExpanded(detail, index)) {
             __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
                 ...{ class: "structured-empty-text" },
             });
@@ -333,41 +465,56 @@ __VLS_asFunctionalElement(__VLS_intrinsicElements.pre, __VLS_intrinsicElements.p
 /** @type {__VLS_StyleScopedClasses['result-toolbar']} */ ;
 /** @type {__VLS_StyleScopedClasses['secondary']} */ ;
 /** @type {__VLS_StyleScopedClasses['small-button']} */ ;
-/** @type {__VLS_StyleScopedClasses['summary-grid']} */ ;
-/** @type {__VLS_StyleScopedClasses['result-overview-grid']} */ ;
-/** @type {__VLS_StyleScopedClasses['structured-overview-grid']} */ ;
-/** @type {__VLS_StyleScopedClasses['summary-card']} */ ;
-/** @type {__VLS_StyleScopedClasses['result-summary-card']} */ ;
+/** @type {__VLS_StyleScopedClasses['result-content-card']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-summary-strip-card']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-summary-strip']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-summary-inline-item']} */ ;
 /** @type {__VLS_StyleScopedClasses['structured-highlight-grid']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-grid']} */ ;
 /** @type {__VLS_StyleScopedClasses['result-content-card']} */ ;
 /** @type {__VLS_StyleScopedClasses['structured-highlight-card']} */ ;
-/** @type {__VLS_StyleScopedClasses['result-card-head']} */ ;
-/** @type {__VLS_StyleScopedClasses['compact-head']} */ ;
-/** @type {__VLS_StyleScopedClasses['structured-range-text']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-card']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-head']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-label']} */ ;
 /** @type {__VLS_StyleScopedClasses['result-content-card']} */ ;
 /** @type {__VLS_StyleScopedClasses['structured-highlight-card']} */ ;
-/** @type {__VLS_StyleScopedClasses['result-card-head']} */ ;
-/** @type {__VLS_StyleScopedClasses['compact-head']} */ ;
-/** @type {__VLS_StyleScopedClasses['structured-metric-line']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-card']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-head']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-label']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-metrics']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-metric']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-metric']} */ ;
 /** @type {__VLS_StyleScopedClasses['result-content-card']} */ ;
 /** @type {__VLS_StyleScopedClasses['structured-highlight-card']} */ ;
-/** @type {__VLS_StyleScopedClasses['result-card-head']} */ ;
-/** @type {__VLS_StyleScopedClasses['compact-head']} */ ;
-/** @type {__VLS_StyleScopedClasses['structured-metric-line']} */ ;
-/** @type {__VLS_StyleScopedClasses['structured-metric-line-asian']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-card']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-head']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-label']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-metrics']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-metric']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-metric']} */ ;
 /** @type {__VLS_StyleScopedClasses['result-content-card']} */ ;
 /** @type {__VLS_StyleScopedClasses['structured-highlight-card']} */ ;
-/** @type {__VLS_StyleScopedClasses['result-card-head']} */ ;
-/** @type {__VLS_StyleScopedClasses['compact-head']} */ ;
-/** @type {__VLS_StyleScopedClasses['structured-range-text']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-card']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-head']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-label']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-metrics']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-metric']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-dashboard-metric']} */ ;
 /** @type {__VLS_StyleScopedClasses['structured-detail-shell']} */ ;
 /** @type {__VLS_StyleScopedClasses['result-content-card']} */ ;
 /** @type {__VLS_StyleScopedClasses['structured-detail-section']} */ ;
 /** @type {__VLS_StyleScopedClasses['result-card-head']} */ ;
 /** @type {__VLS_StyleScopedClasses['compact-head']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-detail-toolbar']} */ ;
+/** @type {__VLS_StyleScopedClasses['secondary']} */ ;
+/** @type {__VLS_StyleScopedClasses['small-button']} */ ;
 /** @type {__VLS_StyleScopedClasses['structured-detail-grid']} */ ;
 /** @type {__VLS_StyleScopedClasses['structured-detail-card']} */ ;
 /** @type {__VLS_StyleScopedClasses['structured-detail-head']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-detail-actions']} */ ;
+/** @type {__VLS_StyleScopedClasses['secondary']} */ ;
+/** @type {__VLS_StyleScopedClasses['small-button']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-fold-button']} */ ;
 /** @type {__VLS_StyleScopedClasses['structured-detail-error']} */ ;
 /** @type {__VLS_StyleScopedClasses['structured-record-list']} */ ;
 /** @type {__VLS_StyleScopedClasses['structured-record-item']} */ ;
@@ -382,9 +529,16 @@ __VLS_asFunctionalElement(__VLS_intrinsicElements.pre, __VLS_intrinsicElements.p
 /** @type {__VLS_StyleScopedClasses['structured-detail-section']} */ ;
 /** @type {__VLS_StyleScopedClasses['result-card-head']} */ ;
 /** @type {__VLS_StyleScopedClasses['compact-head']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-detail-toolbar']} */ ;
+/** @type {__VLS_StyleScopedClasses['secondary']} */ ;
+/** @type {__VLS_StyleScopedClasses['small-button']} */ ;
 /** @type {__VLS_StyleScopedClasses['structured-detail-grid']} */ ;
 /** @type {__VLS_StyleScopedClasses['structured-detail-card']} */ ;
 /** @type {__VLS_StyleScopedClasses['structured-detail-head']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-detail-actions']} */ ;
+/** @type {__VLS_StyleScopedClasses['secondary']} */ ;
+/** @type {__VLS_StyleScopedClasses['small-button']} */ ;
+/** @type {__VLS_StyleScopedClasses['structured-fold-button']} */ ;
 /** @type {__VLS_StyleScopedClasses['structured-detail-error']} */ ;
 /** @type {__VLS_StyleScopedClasses['structured-record-list']} */ ;
 /** @type {__VLS_StyleScopedClasses['structured-record-item']} */ ;
@@ -405,12 +559,26 @@ const __VLS_self = (await import('vue')).defineComponent({
         return {
             europeanDetails: europeanDetails,
             asianDetails: asianDetails,
+            fetchedDetailCount: fetchedDetailCount,
+            matchedDetailRecordCount: matchedDetailRecordCount,
+            europeanFetchedCount: europeanFetchedCount,
+            asianFetchedCount: asianFetchedCount,
+            europeanMatchedCount: europeanMatchedCount,
+            asianMatchedCount: asianMatchedCount,
             pageReadyCount: pageReadyCount,
+            pageTotalCount: pageTotalCount,
             structuredSummaryCards: structuredSummaryCards,
-            formatNumber: formatNumber,
+            allEuropeanExpanded: allEuropeanExpanded,
+            allAsianExpanded: allAsianExpanded,
             formatText: formatText,
             formatRangeText: formatRangeText,
             getChangeTimeDisplay: getChangeTimeDisplay,
+            isEuropeanExpanded: isEuropeanExpanded,
+            isAsianExpanded: isAsianExpanded,
+            toggleEuropeanExpanded: toggleEuropeanExpanded,
+            toggleAsianExpanded: toggleAsianExpanded,
+            setAllEuropeanExpanded: setAllEuropeanExpanded,
+            setAllAsianExpanded: setAllAsianExpanded,
             getEuropeanRecordFields: getEuropeanRecordFields,
             getAsianRecordFields: getAsianRecordFields,
         };

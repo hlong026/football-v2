@@ -132,7 +132,7 @@ export type RecordDetail = {
   }
 }
 
-export type ResultTab = 'structured' | 'preview' | 'analysis' | 'history'
+export type ResultTab = 'structured' | 'preview' | 'analysis'
 export type HistorySort = 'newest' | 'oldest' | 'match_key'
 export type HistoryRange = 'all' | 'today' | '7d' | '30d'
 export type RecordFocus = 'all' | 'pinned' | 'favorited' | 'important'
@@ -183,9 +183,73 @@ export type AnalysisRunResult = {
   success?: boolean
   raw_response?: string | null
   error_message?: string | null
+  request_preview?: AnalysisPreviewResult
+  european_result?: StageAnalysisResult
+  asian_base_result?: StageAnalysisResult
+  final_result?: StageAnalysisResult
+}
+export type PromptConfigLite = {
+  prompt_name: string
+  prompt_text: string
+}
+export type AnalysisPromptSetLite = {
+  european: PromptConfigLite
+  asian_base: PromptConfigLite
+  final: PromptConfigLite
+}
+export type StageAnalysisPreview = {
+  stage: 'european' | 'asian_base' | 'final'
+  prompt_name: string
+  system_prompt: string
+  user_prompt: string
+  structured_payload: Record<string, unknown>
+}
+export type AnalysisPreviewResult = {
+  site?: string
+  match_key?: string
+  model_name?: string
+  stages?: Record<string, StageAnalysisPreview>
+}
+export type StageAnalysisResult = {
+  stage: 'european' | 'asian_base' | 'final'
+  prompt_name?: string
+  success?: boolean
+  request_preview?: StageAnalysisPreview
+  summary?: StageAnalysisSummary
+  raw_response?: string | null
+  error_message?: string | null
+}
+export type UpstreamStageTexts = {
+  european?: string | null
+  asian_base?: string | null
+}
+export type StageRunResult = {
+  site?: string
+  match_key?: string
+  model_name?: string
+  stage: 'european' | 'asian_base' | 'final'
+  stage_result: StageAnalysisResult
+  request_preview?: AnalysisPreviewResult
+  error_message?: string | null
+}
+export type StageAnalysisSummary = {
+  direction?: string | null
+  statement?: string | null
+  final_direction?: string | null
+  final_statement?: string | null
+  european_view?: string | null
+  asian_base_view?: string | null
+  cross_market_consensus?: string | null
+  key_points?: string[]
+  key_evidence?: string[]
+  risk_level?: string | null
+  risk_notes?: string[]
+  action_advice?: string | null
+  time_scope_summary?: string | null
+  company_scope_summary?: string | null
 }
 export type WorkflowStepItem = {
-  key: 'input' | 'diagnostic' | 'structured' | 'analysis' | 'history'
+  key: 'input' | 'diagnostic' | 'structured' | 'preview' | 'analysis' | 'european' | 'asian_base' | 'final'
   label: string
   statusLabel: string
   description: string
@@ -196,20 +260,32 @@ export type PersistedFormDraft = {
   matchUrl?: string
   anchorStartTime?: string
   anchorEndTime?: string
-  aiProvider?: 'deepseek' | 'openai'
+  aiProvider?: 'deepseek' | 'openai' | 'doubao'
   apiEndpoint?: string
   apiKey?: string
   modelName?: string
   temperature?: string
   maxTokens?: string
-  promptText?: string
-  promptName?: string
+  topP?: string
+  presencePenalty?: string
+  frequencyPenalty?: string
+  timeoutSeconds?: string
+  europeanPromptText?: string
+  europeanPromptName?: string
+  asianBasePromptText?: string
+  asianBasePromptName?: string
+  finalPromptText?: string
+  finalPromptName?: string
   europeanCompanies?: string
   asianCompanies?: string
   fetchCookie?: string
+  europeanStageText?: string
+  asianBaseStageText?: string
+  finalStageText?: string
   activeResultTab?: ResultTab
   modelSettingsSavedAt?: string
   analysisSettingsSavedAt?: string
+  institutionSettingsSavedAt?: string
   fetchSettingsSavedAt?: string
 }
 export type AIConnectionTestResult = {
@@ -225,12 +301,16 @@ export type SavedFetchSettingsResponse = {
   updated_at: string | null
 }
 export type SavedAISettingsResponse = {
-  provider: 'deepseek' | 'openai' | 'ollama'
+  provider: 'deepseek' | 'openai' | 'doubao'
   api_endpoint: string
   api_key: string | null
   model_name: string
   temperature: number | null
   max_tokens: number | null
+  top_p: number | null
+  presence_penalty: number | null
+  frequency_penalty: number | null
+  timeout_seconds: number | null
   updated_at: string | null
 }
 export type SavedAnalysisSettingsResponse = {
@@ -238,10 +318,7 @@ export type SavedAnalysisSettingsResponse = {
     european: string[]
     asian: string[]
   }
-  prompt_config: {
-    prompt_name: string
-    prompt_text: string
-  }
+  prompt_set: AnalysisPromptSetLite
   updated_at: string | null
 }
 export type HistoryGroupItem = {

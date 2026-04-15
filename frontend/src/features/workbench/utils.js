@@ -156,6 +156,44 @@ function extractConclusionLead(rawLines, paragraphs, cleanedLines, headline) {
         || cleanedLines.map(compactDecisionLine).find((item) => item && item !== headline && !isMethodologyLine(item))
         || headline;
 }
+function countDirectionMatches(text, pattern) {
+    return text.match(pattern)?.length ?? 0;
+}
+function resolveDirectionTag(lines) {
+    const content = lines.join('\n');
+    if (!content) {
+        return '观望';
+    }
+    if (/(观望|等待|暂不|回避|不宜|谨慎参与|先观察|继续观察)/.test(content)) {
+        return '观望';
+    }
+    let homeScore = countDirectionMatches(content, /(主胜|主队|偏主|看好主|首选主|支持主|主不败|让胜|主队方向)/g);
+    let awayScore = countDirectionMatches(content, /(客胜|客队|偏客|看好客|首选客|支持客|客不败|让负|客队方向)/g);
+    let drawScore = countDirectionMatches(content, /(平局|偏平|防平|首选平|走平)/g);
+    if (/胜平/.test(content)) {
+        homeScore += 1;
+        drawScore += 1;
+    }
+    if (/平负/.test(content)) {
+        awayScore += 1;
+        drawScore += 1;
+    }
+    if (/胜负/.test(content)) {
+        homeScore += 1;
+        awayScore += 1;
+    }
+    const maxScore = Math.max(homeScore, awayScore, drawScore);
+    if (maxScore <= 0) {
+        return '观望';
+    }
+    if (drawScore >= homeScore && drawScore >= awayScore) {
+        return '偏平';
+    }
+    if (homeScore >= awayScore) {
+        return '偏主';
+    }
+    return '偏客';
+}
 export function buildAnalysisView(text, emptyHeadline, emptyLead) {
     const normalized = formatAnalysisText(text);
     if (!normalized || normalized.startsWith('还没有') || normalized.startsWith('暂无')) {
@@ -164,6 +202,7 @@ export function buildAnalysisView(text, emptyHeadline, emptyLead) {
             headlineFull: emptyHeadline,
             lead: emptyLead,
             leadFull: emptyLead,
+            directionTag: '观望',
             summaryPoints: [],
             raw: text,
             hasContent: false,
@@ -195,11 +234,13 @@ export function buildAnalysisView(text, emptyHeadline, emptyLead) {
     }
     const directHeadline = headlineSeed.split(/[。；!！?？\n]/)[0]?.trim() || headlineSeed;
     const compactLead = leadSeed && leadSeed !== headlineSeed ? cutText(leadSeed, 82) : '';
+    const directionTag = resolveDirectionTag([headlineSeed, leadSeed, ...summaryPoints]);
     return {
         headline: cutText(directHeadline, 38),
         headlineFull: headlineSeed,
         lead: compactLead,
         leadFull: leadSeed,
+        directionTag,
         summaryPoints: summaryPoints.slice(0, 4),
         raw: normalized,
         hasContent: true,

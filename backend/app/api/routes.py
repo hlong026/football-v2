@@ -1,19 +1,21 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter
 
 from app.adapters.site_adapter import SiteAdapterFactory
-from app.models.schemas import AIConfigPayload, AIConnectionTestResponse, AnalysisPreviewResponse, AnalysisRunResponse, AnalysisSettingsPayload, ArchivedAnalysisRecord, FetchConfigPayload, MatchPreparationRequest, PreparedMatchResponse, SavedAISettingsResponse, SavedAnalysisSettingsResponse, SavedFetchSettingsResponse, ScrapeMatchResponse, SiteMeta, SiteType, StructuredMatchResponse
-from app.services.analysis_service import AnalysisService
-from app.services.archive_service import ArchiveService
+from app.models.schemas import AIConfigPayload, AIConnectionTestResponse, AnalysisPreviewResponse, AnalysisRunResponse, AnalysisSettingsPayload, CleanedMatchResponse, FetchConfigPayload, MatchPreparationRequest, PreparedMatchResponse, SavedAISettingsResponse, SavedAnalysisSettingsResponse, SavedFetchSettingsResponse, ScrapeMatchResponse, SiteMeta, SiteType, StageRunRequest, StageRunResponse, StructuredMatchResponse
+from app.services.pipeline_storage_service import PipelineStorageService
+from app.services.pipeline_analysis_service import PipelineAnalysisService
 from app.services.scrape_service import ScrapeService
 from app.services.settings_service import SettingsService
+from app.services.secondary_clean_service import SecondaryCleanService
 from app.services.structured_match_service import StructuredMatchService
 
 router = APIRouter()
-archive_service = ArchiveService()
 scrape_service = ScrapeService()
 settings_service = SettingsService()
 structured_match_service = StructuredMatchService()
-analysis_service = AnalysisService()
+secondary_clean_service = SecondaryCleanService()
+pipeline_storage_service = PipelineStorageService()
+analysis_service = PipelineAnalysisService()
 
 
 def resolve_fetch_config(fetch_config: FetchConfigPayload) -> FetchConfigPayload:
@@ -43,6 +45,29 @@ async def resolve_structured_match(request: MatchPreparationRequest) -> Structur
         selected_european_companies=request.bookmaker_selection.european,
         selected_asian_companies=request.bookmaker_selection.asian,
     )
+
+
+def attach_storage_paths(
+    cleaned: CleanedMatchResponse,
+    run_label: str,
+    request: MatchPreparationRequest,
+    structured: StructuredMatchResponse,
+    analysis_inputs: dict | None = None,
+    analysis_outputs: dict | None = None,
+) -> CleanedMatchResponse:
+    storage_paths = pipeline_storage_service.save_snapshot(
+        request=request,
+        raw_structured=structured,
+        cleaned_structured=cleaned,
+        analysis_inputs=analysis_inputs,
+        analysis_outputs=analysis_outputs,
+        run_label=run_label,
+    )
+    return cleaned.model_copy(update={"storage_paths": storage_paths})
+
+
+def resolve_cleaned_match(request: MatchPreparationRequest, structured: StructuredMatchResponse) -> CleanedMatchResponse:
+    return secondary_clean_service.build_cleaned_match(request, structured)
 
 
 @router.get('/health')
@@ -104,7 +129,7 @@ def prepare_match(request: MatchPreparationRequest) -> PreparedMatchResponse:
         selected_asian_companies=request.bookmaker_selection.asian,
         ai_provider=request.ai_config.provider,
         model_name=request.ai_config.model_name,
-        prompt_name=request.prompt_config.prompt_name,
+        prompt_name=request.prompt_set.final.prompt_name,
     )
 
 
@@ -147,10 +172,26 @@ async def get_structured_match(request: MatchPreparationRequest) -> StructuredMa
     )
 
 
+@router.post('/matches/cleaned', response_model=CleanedMatchResponse)
+async def get_cleaned_match(request: MatchPreparationRequest) -> CleanedMatchResponse:
+    structured = await resolve_structured_match(request)
+    cleaned = resolve_cleaned_match(request, structured)
+    return attach_storage_paths(cleaned, "cleaned", request, structured)
+
+
 @router.post('/analysis/preview', response_model=AnalysisPreviewResponse)
 async def preview_analysis(request: MatchPreparationRequest) -> AnalysisPreviewResponse:
     structured = await resolve_structured_match(request)
-    return analysis_service.build_preview(request, structured)
+    cleaned = resolve_cleaned_match(request, structured)
+    preview = analysis_service.build_preview(request, structured, cleaned)
+    attach_storage_paths(
+        cleaned,
+        "preview",
+        request,
+        structured,
+        analysis_inputs={stage: payload.structured_payload for stage, payload in preview.stages.items()},
+    )
+    return preview
 
 
 @router.post('/analysis/test-connection', response_model=AIConnectionTestResponse)
@@ -158,40 +199,39 @@ async def test_analysis_connection(request: MatchPreparationRequest) -> AIConnec
     return await analysis_service.test_connection(request.ai_config)
 
 
-@router.post('/analysis/run', response_model=AnalysisRunResponse)
-async def run_analysis(request: MatchPreparationRequest) -> AnalysisRunResponse:
+@router.post('/analysis/run-stage', response_model=StageRunResponse)
+async def run_stage_analysis(request: StageRunRequest) -> StageRunResponse:
     structured = await resolve_structured_match(request)
-    result = await analysis_service.run_analysis(request, structured)
-    if result.success:
-        archive_service.save_record(
-            ArchivedAnalysisRecord(
-                site=request.site,
-                match_key=structured.match_key,
-                source_url=str(request.match_url),
-                request_payload=result.request_preview.structured_payload,
-                scraped_payload=structured.model_dump(),
-                analysis_payload=result.model_dump(),
-            )
-        )
+    cleaned = resolve_cleaned_match(request, structured)
+    result = await analysis_service.run_stage(request, structured, cleaned, request.stage)
+    attach_storage_paths(
+        cleaned,
+        f"analysis-stage-{request.stage.value}",
+        request,
+        structured,
+        analysis_inputs={stage: payload.structured_payload for stage, payload in result.request_preview.stages.items()},
+        analysis_outputs={request.stage.value: result.stage_result.model_dump(mode='json')},
+    )
     return result
 
 
-@router.post('/records/archive')
-def archive_record(record: ArchivedAnalysisRecord) -> dict:
-    file_path = archive_service.save_record(record)
-    return {'saved': True, 'path': str(file_path.resolve())}
-
-
-@router.get('/records')
-def list_archived_records(limit: int = 100) -> dict:
-    return {'items': [item.model_dump() for item in archive_service.list_records(limit=limit)]}
-
-
-@router.get('/records/detail')
-def get_archived_record(relative_path: str = Query(..., description='归档文件相对路径')) -> dict:
-    try:
-        return archive_service.get_record(relative_path)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+@router.post('/analysis/run', response_model=AnalysisRunResponse)
+async def run_analysis(request: MatchPreparationRequest) -> AnalysisRunResponse:
+    structured = await resolve_structured_match(request)
+    cleaned = resolve_cleaned_match(request, structured)
+    result = await analysis_service.run_analysis(request, structured, cleaned)
+    stage_inputs = {stage: payload.structured_payload for stage, payload in result.request_preview.stages.items()}
+    stage_outputs = {
+        'european': result.european_result.model_dump(mode='json'),
+        'asian_base': result.asian_base_result.model_dump(mode='json'),
+        'final': result.final_result.model_dump(mode='json'),
+    }
+    attach_storage_paths(
+        cleaned,
+        "analysis",
+        request,
+        structured,
+        analysis_inputs=stage_inputs,
+        analysis_outputs=stage_outputs,
+    )
+    return result

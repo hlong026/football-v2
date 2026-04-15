@@ -10,8 +10,10 @@ backend/.venv/
 .mypy_cache/
 backend/data/runtime-settings.json
 backend/data/archive/
+backend/data/pipeline/
 backend/data/structured-cache/
 .vscode/
 .idea/
 backend/debug_*.html
 *.tsbuildinfo
+frontend/build-output.txt

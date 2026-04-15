@@ -81,6 +81,15 @@ textarea {
   pointer-events: none;
 }
 
+.hero-main {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(360px, 0.95fr) minmax(560px, 1.25fr);
+  gap: 22px;
+  align-items: start;
+}
+
 .hero-copy {
   position: relative;
   z-index: 1;
@@ -126,10 +135,122 @@ textarea {
   font-size: 12px;
 }
 
+.hero-flow-panel {
+  display: grid;
+  gap: 16px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(47, 124, 255, 0.18);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(244, 248, 255, 0.98) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.hero-flow-head {
+  display: grid;
+  gap: 4px;
+}
+
+.hero-flow-head strong {
+  color: var(--text-strong);
+  font-size: 15px;
+}
+
+.hero-flow-head span {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.hero-flow-track {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.hero-flow-step {
+  position: relative;
+  display: grid;
+  gap: 10px;
+}
+
+.hero-flow-step::before {
+  content: '';
+  position: absolute;
+  top: 18px;
+  left: calc(50% + 20px);
+  width: calc(100% - 8px);
+  height: 2px;
+  background: rgba(47, 124, 255, 0.2);
+}
+
+.hero-flow-step:last-child::before {
+  display: none;
+}
+
+.hero-flow-dot {
+  position: relative;
+  z-index: 1;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #d7e6ff 0%, #edf4ff 100%);
+  border: 1px solid rgba(47, 124, 255, 0.18);
+  color: var(--accent-strong);
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.hero-flow-content {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.hero-flow-content strong {
+  color: var(--text-strong);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.hero-flow-content span {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.hero-flow-step.current .hero-flow-dot {
+  background: linear-gradient(135deg, #2f7cff 0%, #65a6ff 100%);
+  border-color: transparent;
+  color: #ffffff;
+  box-shadow: 0 10px 22px rgba(47, 124, 255, 0.24);
+}
+
+.hero-flow-step.current .hero-flow-content strong,
+.hero-flow-step.current .hero-flow-content span {
+  color: var(--accent-strong);
+}
+
+.hero-flow-step.done .hero-flow-dot {
+  background: linear-gradient(135deg, #1ea86a 0%, #53c98e 100%);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+.hero-flow-step.done::before {
+  background: linear-gradient(90deg, rgba(30, 168, 106, 0.6) 0%, rgba(47, 124, 255, 0.26) 100%);
+}
+
+.hero-flow-step.done .hero-flow-content strong {
+  color: #177e53;
+}
+
 .dashboard-layout {
   margin-top: 0;
   display: grid;
-  grid-template-columns: minmax(460px, 34vw) minmax(0, 1fr);
+  grid-template-columns: minmax(430px, 33vw) minmax(0, 1fr);
   gap: clamp(20px, 2vw, 32px);
   align-items: stretch;
   min-height: 0;
@@ -375,98 +496,6 @@ textarea {
 
 .panel-card-toggle {
   padding-bottom: 2px;
-}
-
-.onboarding-card {
-  margin-bottom: 12px;
-  background: linear-gradient(180deg, #ffffff 0%, #f6faff 100%);
-}
-
-.onboarding-head {
-  display: grid;
-  gap: 4px;
-}
-
-.onboarding-head strong {
-  color: var(--text-strong);
-  font-size: 15px;
-}
-
-.onboarding-head span {
-  color: var(--text-muted);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.onboarding-steps {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.onboarding-step {
-  border-radius: 14px;
-  padding: 12px;
-  background: var(--panel-subtle);
-  border: 1px solid var(--border);
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr);
-  gap: 10px;
-  align-items: start;
-}
-
-.onboarding-step > strong {
-  width: 36px;
-  height: 36px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--accent);
-  color: #ffffff;
-  font-size: 15px;
-}
-
-.onboarding-step div {
-  display: grid;
-  gap: 4px;
-}
-
-.onboarding-step span {
-  color: var(--text-strong);
-  font-weight: 600;
-}
-
-.onboarding-step small {
-  color: var(--text-muted);
-  line-height: 1.6;
-}
-
-.onboarding-step em {
-  color: var(--accent-strong);
-  font-style: normal;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.onboarding-step.current {
-  border-color: rgba(47, 124, 255, 0.6);
-  background: linear-gradient(180deg, #eef5ff 0%, #ffffff 100%);
-  box-shadow: 0 0 0 2px rgba(47, 124, 255, 0.12);
-}
-
-.onboarding-step.current > strong {
-  background: linear-gradient(135deg, #2f7cff 0%, #65a6ff 100%);
-  box-shadow: 0 10px 22px rgba(47, 124, 255, 0.22);
-}
-
-.onboarding-step.done {
-  border-color: rgba(25, 158, 92, 0.26);
-  background: linear-gradient(180deg, #f2fbf6 0%, #ffffff 100%);
-}
-
-.onboarding-step.done > strong {
-  background: linear-gradient(135deg, #1ea86a 0%, #53c98e 100%);
 }
 
 .step-current-shell {
@@ -1060,6 +1089,101 @@ button:disabled {
 .analysis-layout {
   display: grid;
   gap: 12px;
+}
+
+.analysis-stage-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.analysis-stage-panel {
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+  background: #ffffff;
+}
+
+.analysis-stage-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.analysis-stage-title-wrap {
+  display: grid;
+  gap: 4px;
+}
+
+.analysis-stage-title-wrap > span {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.analysis-stage-title-wrap > strong {
+  color: var(--text-strong);
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+.analysis-stage-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.analysis-stage-field-pills {
+  gap: 8px;
+}
+
+.analysis-stage-field-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(47, 124, 255, 0.08);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.analysis-stage-summary {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.analysis-stage-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.analysis-stage-editor > span {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.analysis-stage-editor textarea {
+  width: 100%;
+  min-height: 220px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: #f8fbff;
+  padding: 12px 14px;
+  color: var(--text-strong);
+  font-size: 13px;
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.analysis-stage-editor textarea:focus {
+  outline: none;
+  border-color: rgba(47, 124, 255, 0.45);
+  box-shadow: 0 0 0 3px rgba(47, 124, 255, 0.12);
 }
 
 .analysis-lead-card {
@@ -2220,6 +2344,20 @@ button.interactive-card:hover {
 }
 
 @media (max-width: 1600px) {
+  .hero-main {
+    grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.2fr);
+  }
+
+  .hero-flow-track {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    row-gap: 16px;
+  }
+
+  .hero-flow-step:nth-child(3)::before,
+  .hero-flow-step:nth-child(6)::before {
+    display: none;
+  }
+
   .dashboard-layout {
     grid-template-columns: minmax(420px, 38vw) minmax(0, 1fr);
   }
@@ -2250,6 +2388,20 @@ button.interactive-card:hover {
   .page-shell {
     height: auto;
     overflow: visible;
+  }
+
+  .hero-main {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-flow-track {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hero-flow-step::before,
+  .hero-flow-step:nth-child(3)::before,
+  .hero-flow-step:nth-child(6)::before {
+    display: none;
   }
 
   .dashboard-layout,
@@ -2322,6 +2474,14 @@ button.interactive-card:hover {
     font-size: 13px;
   }
 
+  .hero-flow-panel {
+    padding: 14px;
+  }
+
+  .hero-flow-track {
+    grid-template-columns: 1fr;
+  }
+
   .workspace-summary-grid,
   .status-grid,
   .result-overview-grid,
@@ -2332,7 +2492,6 @@ button.interactive-card:hover {
   .diagnostic-grid,
   .cookie-health-grid,
   .highlight-grid,
-  .onboarding-steps,
   .control-panel .quick-helper-row,
   .vertical-action-row,
   .stage-progress-steps {

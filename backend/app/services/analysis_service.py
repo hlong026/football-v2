@@ -1,12 +1,24 @@
 import httpx
 
-from app.models.schemas import AIConfigPayload, AIConnectionTestResponse, AIProvider, AnalysisPreviewResponse, AnalysisRunResponse, MatchPreparationRequest, StructuredMatchResponse
-from app.services.prompt_service import PromptService
+from app.models.schemas import (
+    AIConfigPayload,
+    AIConnectionTestResponse,
+    AIProvider,
+    AnalysisPreviewResponse,
+    AnalysisRunResponse,
+    AnalysisStage,
+    CleanedMatchResponse,
+    MatchPreparationRequest,
+    StageAnalysisPreview,
+    StageAnalysisResult,
+    StructuredMatchResponse,
+)
+from app.services.pipeline_prompt_service import PipelinePromptService
 
 
 class AnalysisService:
     def __init__(self) -> None:
-        self.prompt_service = PromptService()
+        self.prompt_service = PipelinePromptService()
 
     def _normalize_endpoint(self, api_endpoint: str) -> str:
         return api_endpoint.strip().rstrip('/') + '/chat/completions'
@@ -22,11 +34,17 @@ class AnalysisService:
         }
         if not include_optional_params:
             return payload
-        allow_temperature = not (ai_config.provider == AIProvider.DEEPSEEK and 'reasoner' in model_name.lower())
-        if allow_temperature and ai_config.temperature is not None:
+        allow_sampling_params = not (ai_config.provider == AIProvider.DEEPSEEK and 'reasoner' in model_name.lower())
+        if allow_sampling_params and ai_config.temperature is not None:
             payload['temperature'] = ai_config.temperature
         if ai_config.max_tokens is not None:
             payload['max_tokens'] = ai_config.max_tokens
+        if allow_sampling_params and ai_config.top_p is not None:
+            payload['top_p'] = ai_config.top_p
+        if allow_sampling_params and ai_config.presence_penalty is not None:
+            payload['presence_penalty'] = ai_config.presence_penalty
+        if allow_sampling_params and ai_config.frequency_penalty is not None:
+            payload['frequency_penalty'] = ai_config.frequency_penalty
         return payload
 
     def _build_completion_attempts(self, ai_config: AIConfigPayload, system_prompt: str, user_prompt: str) -> list[dict]:
@@ -60,6 +78,12 @@ class AnalysisService:
         if not detail:
             detail = response.text.strip()
         return f'模型接口返回 {response.status_code}：{detail}' if detail else f'模型接口返回 {response.status_code}'
+
+    def _resolve_timeout_seconds(self, ai_config: AIConfigPayload, fallback: int) -> int:
+        configured = ai_config.timeout_seconds
+        if configured is None:
+            return fallback
+        return max(5, int(configured))
 
     async def _request_completion(self, endpoint: str, headers: dict[str, str], payloads: list[dict], timeout_seconds: int) -> dict:
         last_error = '模型接口未返回有效响应。'
@@ -95,7 +119,7 @@ class AnalysisService:
 
     async def test_connection(self, ai_config: AIConfigPayload) -> AIConnectionTestResponse:
         endpoint = self._normalize_endpoint(ai_config.api_endpoint)
-        if ai_config.provider != 'ollama' and not (ai_config.api_key or '').strip():
+        if not (ai_config.api_key or '').strip():
             return AIConnectionTestResponse(
                 success=False,
                 provider=ai_config.provider,
@@ -109,7 +133,7 @@ class AnalysisService:
         headers = self._build_headers(ai_config.api_key)
 
         try:
-            data = await self._request_completion(endpoint, headers, payloads, timeout_seconds=30)
+            data = await self._request_completion(endpoint, headers, payloads, timeout_seconds=self._resolve_timeout_seconds(ai_config, 30))
             content = self._extract_completion_content(data)
             message = '模型接口已连通，可以继续正式分析。' if content else '接口已返回成功，但未读到有效内容。'
             return AIConnectionTestResponse(
@@ -128,19 +152,19 @@ class AnalysisService:
                 message=str(exc),
             )
 
-    def build_preview(self, request: MatchPreparationRequest, structured: StructuredMatchResponse) -> AnalysisPreviewResponse:
+    def build_preview(self, request: MatchPreparationRequest, structured: StructuredMatchResponse, cleaned: CleanedMatchResponse) -> AnalysisPreviewResponse:
         return AnalysisPreviewResponse(
             site=request.site,
             match_key=structured.match_key,
             model_name=request.ai_config.model_name,
             prompt_name=request.prompt_config.prompt_name,
             system_prompt=self.prompt_service.build_system_prompt(request),
-            user_prompt=self.prompt_service.build_user_prompt(request, structured),
-            structured_payload=self.prompt_service.build_structured_payload(request, structured),
+            user_prompt=self.prompt_service.build_user_prompt(request, structured, cleaned),
+            structured_payload=self.prompt_service.build_structured_payload(request, structured, cleaned),
         )
 
-    async def run_analysis(self, request: MatchPreparationRequest, structured: StructuredMatchResponse) -> AnalysisRunResponse:
-        preview = self.build_preview(request, structured)
+    async def run_analysis(self, request: MatchPreparationRequest, structured: StructuredMatchResponse, cleaned: CleanedMatchResponse) -> AnalysisRunResponse:
+        preview = self.build_preview(request, structured, cleaned)
         api_key = (request.ai_config.api_key or '').strip()
         if not api_key:
             return AnalysisRunResponse(
@@ -157,7 +181,7 @@ class AnalysisService:
         payloads = self._build_completion_attempts(request.ai_config, preview.system_prompt, preview.user_prompt)
 
         try:
-            data = await self._request_completion(endpoint, self._build_headers(api_key), payloads, timeout_seconds=180)
+            data = await self._request_completion(endpoint, self._build_headers(api_key), payloads, timeout_seconds=self._resolve_timeout_seconds(request.ai_config, 180))
             content = self._extract_completion_content(data)
 
             return AnalysisRunResponse(

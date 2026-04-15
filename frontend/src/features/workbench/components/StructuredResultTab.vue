@@ -90,6 +90,8 @@ type StructuredPayloadLite = {
   asian_handicap?: unknown[]
   anchor_start_time?: string | null
   anchor_end_time?: string | null
+  anchor_start_time_display?: string | null
+  anchor_end_time_display?: string | null
   average_european_odds?: AverageEuropeanLite | null
   average_asian_handicap?: AverageAsianLite | null
   european_odds_details?: EuropeanDetailLite[]
@@ -139,9 +141,32 @@ function formatBoolean(value: boolean | undefined) {
   return value ? '是' : '否'
 }
 
+function formatBeijingTime(value: string | null | undefined) {
+  if (!value) {
+    return null
+  }
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return formatText(value)
+  }
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(parsed).replace(/\//g, '-')
+}
+
 function formatRangeText() {
-  if (!props.structuredResult?.anchor_start_time) return '未设置时间区间'
-  return `${props.structuredResult.anchor_start_time}${props.structuredResult.anchor_end_time ? ` → ${props.structuredResult.anchor_end_time}` : ' → 未设置结束时间'}`
+  if (!props.structuredResult?.anchor_start_time && !props.structuredResult?.anchor_start_time_display) return '未设置时间区间'
+  const startText = formatText(props.structuredResult?.anchor_start_time_display || formatBeijingTime(props.structuredResult?.anchor_start_time))
+  const endText = props.structuredResult?.anchor_end_time_display
+    || formatBeijingTime(props.structuredResult?.anchor_end_time)
+    || '未设置结束时间'
+  return `北京时间 ${startText} → ${endText}`
 }
 
 function getChangeTimeDisplay(record: EuropeanChangeRecordLite | AsianChangeRecordLite) {

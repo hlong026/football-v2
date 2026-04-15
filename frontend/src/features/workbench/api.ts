@@ -1,30 +1,43 @@
 import { backendBaseUrl } from './constants'
 import { normalizeOptionalNumericInput } from './storage'
 import { splitCompanies, splitCookies } from './utils'
-import type { SavedAISettingsResponse, SavedAnalysisSettingsResponse, SavedFetchSettingsResponse } from './types'
+import type { SavedAISettingsResponse, SavedAnalysisSettingsResponse, SavedFetchSettingsResponse, StageRunResult, UpstreamStageTexts } from './types'
 
-type BuildPayloadInput = {
+export type BuildPayloadInput = {
   site: string
   matchUrl: string
   anchorStartTime: string
   anchorEndTime: string
-  aiProvider: 'deepseek' | 'openai'
+  aiProvider: 'deepseek' | 'openai' | 'doubao'
   apiEndpoint: string
   apiKey: string
   modelName: string
   temperature: string | number
   maxTokens: string | number
-  promptName: string
-  promptText: string
+  topP: string | number
+  presencePenalty: string | number
+  frequencyPenalty: string | number
+  timeoutSeconds: string | number
+  europeanPromptName: string
+  europeanPromptText: string
+  asianBasePromptName: string
+  asianBasePromptText: string
+  finalPromptName: string
+  finalPromptText: string
   europeanCompanies: string
   asianCompanies: string
   fetchCookie: string
   structuredMatch?: unknown
+  upstreamStageTexts?: UpstreamStageTexts
 }
 
 export function buildPayload(input: BuildPayloadInput) {
   const normalizedTemperature = normalizeOptionalNumericInput(input.temperature)
   const normalizedMaxTokens = normalizeOptionalNumericInput(input.maxTokens)
+  const normalizedTopP = normalizeOptionalNumericInput(input.topP)
+  const normalizedPresencePenalty = normalizeOptionalNumericInput(input.presencePenalty)
+  const normalizedFrequencyPenalty = normalizeOptionalNumericInput(input.frequencyPenalty)
+  const normalizedTimeoutSeconds = normalizeOptionalNumericInput(input.timeoutSeconds)
   const cookieItems = splitCookies(input.fetchCookie)
   return {
     site: input.site.trim(),
@@ -42,16 +55,34 @@ export function buildPayload(input: BuildPayloadInput) {
       model_name: input.modelName.trim(),
       temperature: normalizedTemperature ? Number(normalizedTemperature) : null,
       max_tokens: normalizedMaxTokens ? Number(normalizedMaxTokens) : null,
+      top_p: normalizedTopP ? Number(normalizedTopP) : null,
+      presence_penalty: normalizedPresencePenalty ? Number(normalizedPresencePenalty) : null,
+      frequency_penalty: normalizedFrequencyPenalty ? Number(normalizedFrequencyPenalty) : null,
+      timeout_seconds: normalizedTimeoutSeconds ? Number(normalizedTimeoutSeconds) : null,
     },
-    prompt_config: {
-      prompt_name: input.promptName.trim() || 'default',
-      prompt_text: input.promptText.trim(),
+    prompt_set: {
+      european: {
+        prompt_name: input.europeanPromptName.trim() || 'european',
+        prompt_text: input.europeanPromptText.trim(),
+      },
+      asian_base: {
+        prompt_name: input.asianBasePromptName.trim() || 'asian_base',
+        prompt_text: input.asianBasePromptText.trim(),
+      },
+      final: {
+        prompt_name: input.finalPromptName.trim() || 'final',
+        prompt_text: input.finalPromptText.trim(),
+      },
     },
     fetch_config: {
       cookie: cookieItems[0] || null,
       cookies: cookieItems,
     },
     structured_match: input.structuredMatch ?? null,
+    upstream_stage_texts: {
+      european: input.upstreamStageTexts?.european?.trim() || null,
+      asian_base: input.upstreamStageTexts?.asian_base?.trim() || null,
+    },
   }
 }
 
@@ -90,8 +121,18 @@ export async function callWorkbenchPost(path: string, payloadInput: BuildPayload
   return result
 }
 
-export async function callWorkbenchGet(path: string) {
-  const response = await fetch(`${backendBaseUrl}${path}`)
+export async function runWorkbenchStage(stage: 'european' | 'asian_base' | 'final', payloadInput: BuildPayloadInput): Promise<StageRunResult> {
+  const payload = {
+    ...buildPayload(payloadInput),
+    stage,
+  }
+  const response = await fetch(`${backendBaseUrl}/analysis/run-stage`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
   if (!response.ok) {
     throw new Error(await getResponseError(response))
   }
@@ -115,15 +156,23 @@ export async function loadServerAISettings(): Promise<SavedAISettingsResponse> {
 }
 
 export async function saveServerAISettings(input: {
-  aiProvider: 'deepseek' | 'openai'
+  aiProvider: 'deepseek' | 'openai' | 'doubao'
   apiEndpoint: string
   apiKey: string
   modelName: string
   temperature: string | number
   maxTokens: string | number
+  topP: string | number
+  presencePenalty: string | number
+  frequencyPenalty: string | number
+  timeoutSeconds: string | number
 }): Promise<SavedAISettingsResponse> {
   const normalizedTemperature = normalizeOptionalNumericInput(input.temperature)
   const normalizedMaxTokens = normalizeOptionalNumericInput(input.maxTokens)
+  const normalizedTopP = normalizeOptionalNumericInput(input.topP)
+  const normalizedPresencePenalty = normalizeOptionalNumericInput(input.presencePenalty)
+  const normalizedFrequencyPenalty = normalizeOptionalNumericInput(input.frequencyPenalty)
+  const normalizedTimeoutSeconds = normalizeOptionalNumericInput(input.timeoutSeconds)
   const response = await fetch(`${backendBaseUrl}/settings/ai`, {
     method: 'POST',
     headers: {
@@ -136,6 +185,10 @@ export async function saveServerAISettings(input: {
       model_name: input.modelName.trim(),
       temperature: normalizedTemperature ? Number(normalizedTemperature) : null,
       max_tokens: normalizedMaxTokens ? Number(normalizedMaxTokens) : null,
+      top_p: normalizedTopP ? Number(normalizedTopP) : null,
+      presence_penalty: normalizedPresencePenalty ? Number(normalizedPresencePenalty) : null,
+      frequency_penalty: normalizedFrequencyPenalty ? Number(normalizedFrequencyPenalty) : null,
+      timeout_seconds: normalizedTimeoutSeconds ? Number(normalizedTimeoutSeconds) : null,
     }),
   })
   if (!response.ok) {
@@ -155,8 +208,12 @@ export async function loadServerAnalysisSettings(): Promise<SavedAnalysisSetting
 export async function saveServerAnalysisSettings(input: {
   europeanCompanies: string
   asianCompanies: string
-  promptName: string
-  promptText: string
+  europeanPromptName: string
+  europeanPromptText: string
+  asianBasePromptName: string
+  asianBasePromptText: string
+  finalPromptName: string
+  finalPromptText: string
 }): Promise<SavedAnalysisSettingsResponse> {
   const response = await fetch(`${backendBaseUrl}/settings/analysis`, {
     method: 'POST',
@@ -168,9 +225,19 @@ export async function saveServerAnalysisSettings(input: {
         european: splitCompanies(input.europeanCompanies.trim()),
         asian: splitCompanies(input.asianCompanies.trim()),
       },
-      prompt_config: {
-        prompt_name: input.promptName.trim() || 'default',
-        prompt_text: input.promptText.trim(),
+      prompt_set: {
+        european: {
+          prompt_name: input.europeanPromptName.trim() || 'european',
+          prompt_text: input.europeanPromptText.trim(),
+        },
+        asian_base: {
+          prompt_name: input.asianBasePromptName.trim() || 'asian_base',
+          prompt_text: input.asianBasePromptText.trim(),
+        },
+        final: {
+          prompt_name: input.finalPromptName.trim() || 'final',
+          prompt_text: input.finalPromptText.trim(),
+        },
       },
     }),
   })

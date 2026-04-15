@@ -3,7 +3,15 @@ from datetime import datetime
 from pathlib import Path
 
 from app.core.config import settings
-from app.models.schemas import AIConfigPayload, AnalysisSettingsPayload, FetchConfigPayload, SavedAISettingsResponse, SavedAnalysisSettingsResponse, SavedFetchSettingsResponse
+from app.models.schemas import (
+    AIConfigPayload,
+    AnalysisPromptSetPayload,
+    AnalysisSettingsPayload,
+    FetchConfigPayload,
+    SavedAISettingsResponse,
+    SavedAnalysisSettingsResponse,
+    SavedFetchSettingsResponse,
+)
 
 
 class SettingsService:
@@ -66,6 +74,10 @@ class SettingsService:
             model_name=ai_payload.get('model_name', SavedAISettingsResponse.model_fields['model_name'].default),
             temperature=ai_payload.get('temperature', SavedAISettingsResponse.model_fields['temperature'].default),
             max_tokens=ai_payload.get('max_tokens', SavedAISettingsResponse.model_fields['max_tokens'].default),
+            top_p=ai_payload.get('top_p', SavedAISettingsResponse.model_fields['top_p'].default),
+            presence_penalty=ai_payload.get('presence_penalty', SavedAISettingsResponse.model_fields['presence_penalty'].default),
+            frequency_penalty=ai_payload.get('frequency_penalty', SavedAISettingsResponse.model_fields['frequency_penalty'].default),
+            timeout_seconds=ai_payload.get('timeout_seconds', SavedAISettingsResponse.model_fields['timeout_seconds'].default),
             updated_at=ai_payload.get('updated_at'),
         )
 
@@ -77,6 +89,10 @@ class SettingsService:
             model_name=ai_config.model_name,
             temperature=ai_config.temperature,
             max_tokens=ai_config.max_tokens,
+            top_p=ai_config.top_p,
+            presence_penalty=ai_config.presence_penalty,
+            frequency_penalty=ai_config.frequency_penalty,
+            timeout_seconds=ai_config.timeout_seconds,
             updated_at=datetime.now(),
         )
         payload = self._read_payload()
@@ -87,15 +103,24 @@ class SettingsService:
     def load_analysis_settings(self) -> SavedAnalysisSettingsResponse:
         payload = self._read_payload()
         analysis_payload = payload.get('analysis_settings') if isinstance(payload.get('analysis_settings'), dict) else {}
+        prompt_set = analysis_payload.get('prompt_set')
+        prompt_config = analysis_payload.get('prompt_config')
+        resolved_prompt_set = prompt_set if isinstance(prompt_set, dict) else {
+            'european': prompt_config if isinstance(prompt_config, dict) else {},
+            'asian_base': prompt_config if isinstance(prompt_config, dict) else {},
+            'final': prompt_config if isinstance(prompt_config, dict) else {},
+        }
         return SavedAnalysisSettingsResponse(
             bookmaker_selection=analysis_payload.get('bookmaker_selection', {}),
-            prompt_config=analysis_payload.get('prompt_config', {}),
+            prompt_set=resolved_prompt_set,
+            prompt_config=prompt_config if isinstance(prompt_config, dict) else None,
             updated_at=analysis_payload.get('updated_at'),
         )
 
     def save_analysis_settings(self, analysis_settings: AnalysisSettingsPayload) -> SavedAnalysisSettingsResponse:
         result = SavedAnalysisSettingsResponse(
             bookmaker_selection=analysis_settings.bookmaker_selection,
+            prompt_set=analysis_settings.prompt_set,
             prompt_config=analysis_settings.prompt_config,
             updated_at=datetime.now(),
         )
