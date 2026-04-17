@@ -46,7 +46,10 @@ class PipelineSummaryService:
                 risk_notes=self._pick_risk_notes(lines),
                 action_advice=self._pick_advice(lines),
                 time_scope_summary=time_scope_summary,
-                company_scope_summary=self._build_company_scope(request.bookmaker_selection.asian),
+                company_scope_summary=(
+                    f"欧赔机构：{self._build_company_scope(request.bookmaker_selection.european)}；"
+                    f"亚盘机构：{self._build_company_scope(request.bookmaker_selection.asian)}"
+                ),
             )
 
         asian_view = asian_base_result.summary.asian_base_view if asian_base_result and asian_base_result.summary else self._extract_stage_text(asian_base_result)
@@ -64,7 +67,10 @@ class PipelineSummaryService:
             risk_notes=self._pick_risk_notes(lines),
             action_advice=self._pick_advice(lines),
             time_scope_summary=time_scope_summary,
-            company_scope_summary=f"亚盘机构：{self._build_company_scope(request.bookmaker_selection.asian)}",
+            company_scope_summary=(
+                f"欧赔机构：{self._build_company_scope(request.bookmaker_selection.european)}；"
+                f"亚盘机构：{self._build_company_scope(request.bookmaker_selection.asian)}"
+            ),
         )
 
     def _extract_lines(self, text: str) -> list[str]:

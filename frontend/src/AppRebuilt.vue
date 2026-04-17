@@ -208,7 +208,7 @@ const asianBaseStageText = computed(() => formatAnalysisText(asianBaseStageDraft
 const finalStageText = computed(() => formatAnalysisText(finalStageDraftText.value || analysisResult.value?.final_result?.raw_response || analysisResult.value?.raw_response || analysisResult.value?.final_result?.error_message || analysisResult.value?.error_message || '暂无最终综合分析结果'))
 const analysisDisplayText = computed(() => {
   if (!analysisResult.value && !europeanStageDraftText.value.trim() && !asianBaseStageDraftText.value.trim() && !finalStageDraftText.value.trim()) {
-    return '还没有分步分析结果。欧赔分析和亚盘基础分析可以任选先执行；最终综合分析需要先有亚盘基础结论。'
+    return '还没有分步分析结果。欧赔分析和亚盘基础分析可以任选先执行；亚盘基础和最终综合都会携带清洗后的欧赔数据，但不会依赖欧赔分析结论。'
   }
   return [
     '【欧赔分析】',
@@ -280,14 +280,14 @@ const splitWorkflowSteps = computed<WorkflowStepItem[]>(() => {
       key: 'asian_base',
       label: '亚盘基础分析',
       statusLabel: asianBaseDone ? '已完成' : currentKey === 'asian_base' ? '当前步骤' : '待执行',
-      description: '亚盘基础分析只基于亚盘清洗数据输出基础判断，不依赖欧赔结论。',
+      description: '亚盘基础分析会携带欧赔清洗数据和亚盘清洗数据，但不依赖欧赔分析结论。',
       state: asianBaseDone ? 'done' : currentKey === 'asian_base' ? 'current' : 'idle',
     },
     {
       key: 'final',
       label: '最终综合分析',
       statusLabel: finalDone ? '已完成' : currentKey === 'final' ? '当前步骤' : '待执行',
-      description: '最终综合分析基于亚盘基础结论和亚盘清洗数据，得到最终业务判断。',
+      description: '最终综合分析基于欧赔清洗数据、亚盘清洗数据和亚盘基础结论，得到最终业务判断。',
       state: finalDone ? 'done' : currentKey === 'final' ? 'current' : 'idle',
     },
   ]
@@ -1087,7 +1087,7 @@ async function testModelConnection() {
             </div>
             <div class="module-status-card info">
               <strong>第 4、5、6 步改为手动推进</strong>
-              <span>现在欧赔分析和亚盘基础分析互相独立，可任选先执行；最终综合分析只需要先完成亚盘基础分析。每一步执行后，都可以在右侧直接修改文本。</span>
+              <span>现在欧赔分析和亚盘基础分析互相独立，可任选先执行；亚盘基础会携带欧赔清洗数据但不等欧赔结论，最终综合会携带欧赔清洗数据、亚盘清洗数据和亚盘基础结论。</span>
             </div>
             <div class="action-row primary-action-row vertical-action-row">
               <button :class="['secondary', getWorkflowButtonClass('diagnostic')]" :disabled="loadingCookieTest || !canSubmit" @click="testCookieConnection">{{ loadingCookieTest ? '第2步 测试中...' : '第2步 先做抓取诊断' }}</button>
@@ -1200,7 +1200,7 @@ async function testModelConnection() {
           </div>
           <ul class="guide-list compact-list reset-empty-state-list">
             <li>下一步建议：先做“第 2 步 抓取诊断”，确认当前链接、时间和机构范围对应的数据能抓到。</li>
-            <li>诊断通过后，再执行“第 3 步 结构化解析”；欧赔分析和亚盘基础分析可任选先做，最终综合分析需先完成亚盘基础分析。</li>
+            <li>诊断通过后，再执行“第 3 步 结构化解析”；欧赔分析和亚盘基础分析可任选先做，最终综合分析需先完成亚盘基础分析，并会继续携带欧赔清洗数据。</li>
             <li>模型参数、提示词、Cookie 和机构范围都已保留，无需重新填写。</li>
           </ul>
           <small>重置时间：{{ formatDate(matchResetNotice.resetAt) }}</small>

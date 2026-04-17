@@ -87,8 +87,8 @@ class PipelinePromptService:
     def build_system_prompt(self, stage: AnalysisStage) -> str:
         stage_statement = {
             AnalysisStage.EUROPEAN: "你当前只负责欧赔阶段分析。",
-            AnalysisStage.ASIAN_BASE: "你当前只负责亚盘基础阶段分析。",
-            AnalysisStage.FINAL: "你当前负责最终综合阶段分析，需要整合亚盘基础结论与当前亚盘清洗数据。",
+            AnalysisStage.ASIAN_BASE: "你当前只负责亚盘基础阶段分析，需要参考清洗后的欧赔数据与亚盘数据，但不能依赖欧赔分析结论。",
+            AnalysisStage.FINAL: "你当前负责最终综合阶段分析，需要整合清洗后的欧赔数据、清洗后的亚盘数据与亚盘基础结论。",
         }[stage]
         return (
             f"{stage_statement}"
@@ -153,47 +153,71 @@ class PipelinePromptService:
         if stage == AnalysisStage.EUROPEAN:
             return {
                 **common_payload,
-                "bookmaker_selection": {
-                    "european": request.bookmaker_selection.european,
-                },
-                "company_mappings": [
-                    item.model_dump(mode="json")
-                    for item in cleaned.company_mappings
-                    if item.market == "european"
-                ],
-                "stats": {
-                    "requested_company_count": cleaned.stats.requested_european_company_count,
-                    "matched_company_count": cleaned.stats.matched_european_company_count,
-                    "record_count": cleaned.stats.cleaned_european_record_count,
-                    "dropped_first_row_count": cleaned.stats.dropped_european_first_row_count,
-                },
-                "european": [item.model_dump(mode="json") for item in cleaned.european],
+                **self._build_european_payload(request, cleaned),
             }
         if stage == AnalysisStage.ASIAN_BASE:
             return {
                 **common_payload,
                 "bookmaker_selection": {
+                    "european": request.bookmaker_selection.european,
                     "asian": request.bookmaker_selection.asian,
                 },
-                "company_mappings": [
-                    item.model_dump(mode="json")
-                    for item in cleaned.company_mappings
-                    if item.market == "asian_handicap"
-                ],
-                "stats": {
-                    "requested_company_count": cleaned.stats.requested_asian_company_count,
-                    "matched_company_count": cleaned.stats.matched_asian_company_count,
-                    "record_count": cleaned.stats.cleaned_asian_record_count,
-                },
-                "asian_handicap": [item.model_dump(mode="json") for item in cleaned.asian_handicap],
+                "reference_european": self._build_european_payload(request, cleaned),
+                **self._build_asian_payload(cleaned),
             }
         return {
             **common_payload,
             "upstream_results": {
                 "asian_base": self._serialize_stage_result(asian_base_result, "等待亚盘基础阶段执行"),
             },
+            "bookmaker_selection": {
+                "european": request.bookmaker_selection.european,
+                "asian": request.bookmaker_selection.asian,
+            },
+            "reference_european": self._build_european_payload(request, cleaned),
+            **self._build_asian_payload(cleaned),
+            "final_goal": "基于清洗后的欧赔数据、清洗后的亚盘数据和亚盘基础结论，输出体现最终分析目的的综合结论。",
+        }
+
+    def _build_european_payload(
+        self,
+        request: MatchPreparationRequest,
+        cleaned: CleanedMatchResponse,
+    ) -> dict[str, Any]:
+        return {
+            "bookmaker_selection": {
+                "european": request.bookmaker_selection.european,
+            },
+            "company_mappings": [
+                item.model_dump(mode="json")
+                for item in cleaned.company_mappings
+                if item.market == "european"
+            ],
+            "stats": {
+                "requested_company_count": cleaned.stats.requested_european_company_count,
+                "matched_company_count": cleaned.stats.matched_european_company_count,
+                "record_count": cleaned.stats.cleaned_european_record_count,
+                "dropped_first_row_count": cleaned.stats.dropped_european_first_row_count,
+            },
+            "european": [item.model_dump(mode="json") for item in cleaned.european],
+        }
+
+    def _build_asian_payload(
+        self,
+        cleaned: CleanedMatchResponse,
+    ) -> dict[str, Any]:
+        return {
+            "company_mappings": [
+                item.model_dump(mode="json")
+                for item in cleaned.company_mappings
+                if item.market == "asian_handicap"
+            ],
+            "stats": {
+                "requested_company_count": cleaned.stats.requested_asian_company_count,
+                "matched_company_count": cleaned.stats.matched_asian_company_count,
+                "record_count": cleaned.stats.cleaned_asian_record_count,
+            },
             "asian_handicap": [item.model_dump(mode="json") for item in cleaned.asian_handicap],
-            "final_goal": "基于亚盘基础结论与清洗后的亚盘数据，输出体现最终分析目的的综合结论。",
         }
 
     def _serialize_stage_result(self, result: StageAnalysisResult | None, fallback: str) -> dict[str, Any]:
@@ -222,8 +246,8 @@ class PipelinePromptService:
     def _get_default_stage_instruction(self, stage: AnalysisStage) -> str:
         defaults = {
             AnalysisStage.EUROPEAN: "请基于清洗后的欧赔数据，分析概率、凯利指数和赔付率在指定时间与指定机构范围内的变化，并给出欧赔阶段结论。",
-            AnalysisStage.ASIAN_BASE: "请基于清洗后的亚盘数据，分析主盘变化、主客水位变化和盘口节奏，给出亚盘基础阶段结论。",
-            AnalysisStage.FINAL: "请结合亚盘基础阶段结论和清洗后的亚盘数据，输出面向最终业务目标的综合判断。",
+            AnalysisStage.ASIAN_BASE: "请结合清洗后的欧赔数据与清洗后的亚盘数据，分析主盘变化、主客水位变化和盘口节奏，给出亚盘基础阶段结论；不得依赖欧赔分析结论。",
+            AnalysisStage.FINAL: "请结合清洗后的欧赔数据、清洗后的亚盘数据和亚盘基础阶段结论，输出面向最终业务目标的综合判断。",
         }
         return defaults[stage]
 

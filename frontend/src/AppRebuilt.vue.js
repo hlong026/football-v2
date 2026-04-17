@@ -154,7 +154,7 @@ const asianBaseStageText = computed(() => formatAnalysisText(asianBaseStageDraft
 const finalStageText = computed(() => formatAnalysisText(finalStageDraftText.value || analysisResult.value?.final_result?.raw_response || analysisResult.value?.raw_response || analysisResult.value?.final_result?.error_message || analysisResult.value?.error_message || '暂无最终综合分析结果'));
 const analysisDisplayText = computed(() => {
     if (!analysisResult.value && !europeanStageDraftText.value.trim() && !asianBaseStageDraftText.value.trim() && !finalStageDraftText.value.trim()) {
-        return '还没有分步分析结果。欧赔分析和亚盘基础分析可以任选先执行；最终综合分析需要先有亚盘基础结论。';
+        return '还没有分步分析结果。欧赔分析和亚盘基础分析可以任选先执行；亚盘基础和最终综合都会携带清洗后的欧赔数据，但不会依赖欧赔分析结论。';
     }
     return [
         '【欧赔分析】',
@@ -224,14 +224,14 @@ const splitWorkflowSteps = computed(() => {
             key: 'asian_base',
             label: '亚盘基础分析',
             statusLabel: asianBaseDone ? '已完成' : currentKey === 'asian_base' ? '当前步骤' : '待执行',
-            description: '亚盘基础分析只基于亚盘清洗数据输出基础判断，不依赖欧赔结论。',
+            description: '亚盘基础分析会携带欧赔清洗数据和亚盘清洗数据，但不依赖欧赔分析结论。',
             state: asianBaseDone ? 'done' : currentKey === 'asian_base' ? 'current' : 'idle',
         },
         {
             key: 'final',
             label: '最终综合分析',
             statusLabel: finalDone ? '已完成' : currentKey === 'final' ? '当前步骤' : '待执行',
-            description: '最终综合分析基于亚盘基础结论和亚盘清洗数据，得到最终业务判断。',
+            description: '最终综合分析基于欧赔清洗数据、亚盘清洗数据和亚盘基础结论，得到最终业务判断。',
             state: finalDone ? 'done' : currentKey === 'final' ? 'current' : 'idle',
         },
     ];
