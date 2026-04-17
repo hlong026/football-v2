@@ -66,6 +66,7 @@ const loadingModelConnection = ref(false);
 const loadingStageKey = ref(null);
 const errorMessage = ref('');
 const successMessage = ref('');
+const matchResetNotice = ref(null);
 const structuredResult = ref(null);
 const previewResult = ref(null);
 const analysisResult = ref(null);
@@ -100,6 +101,32 @@ watch(aiProvider, (provider, previousProvider) => {
     }
 }, { immediate: true });
 watch([site, matchUrl, anchorStartTime, anchorEndTime, aiProvider, apiEndpoint, apiKey, modelName, fetchCookie, temperature, maxTokens, topP, presencePenalty, frequencyPenalty, timeoutSeconds, europeanPromptName, europeanPromptText, asianBasePromptName, asianBasePromptText, finalPromptName, finalPromptText, europeanCompanies, asianCompanies, europeanStageDraftText, asianBaseStageDraftText, finalStageDraftText, activeResultTab], saveDraft);
+watch([matchUrl, anchorStartTime, anchorEndTime, europeanCompanies, asianCompanies], (currentValues, previousValues) => {
+    if (!previousValues) {
+        return;
+    }
+    const hasChanged = currentValues.some((value, index) => value !== previousValues[index]);
+    if (!hasChanged) {
+        return;
+    }
+    const hadExecutionState = hasMatchExecutionState();
+    if (hadExecutionState) {
+        resetMatchExecutionState();
+        activeResultTab.value = 'structured';
+        setSuccess('比赛上下文已更新，右侧结果已清空。请重新执行抓取诊断、结构化解析和三阶段分析。');
+    }
+    if (hadExecutionState || resultResetPending.value) {
+        matchResetNotice.value = {
+            matchUrl: matchUrl.value.trim(),
+            anchorStartTime: anchorStartTime.value,
+            anchorEndTime: anchorEndTime.value,
+            europeanCompanyCount: selectedEuropeanCompanyCount.value,
+            asianCompanyCount: selectedAsianCompanyCount.value,
+            resetAt: new Date().toISOString(),
+        };
+    }
+    saveDraft();
+});
 const canSubmit = computed(() => Boolean(matchUrl.value.trim() && anchorStartTime.value));
 const isBusy = computed(() => loadingStructured.value || loadingPreview.value || loadingAnalysis.value || loadingCookieTest.value || loadingModelConnection.value || loadingInstitutionSettings.value || Boolean(loadingStageKey.value));
 const cookiePoolItems = computed(() => splitCookies(fetchCookie.value));
@@ -107,6 +134,19 @@ const currentProviderPreset = computed(() => providerPresets[aiProvider.value]);
 const siteLabel = computed(() => (site.value === 'okooo' ? '澳客网' : site.value));
 const selectedEuropeanCompanyCount = computed(() => splitCompanies(europeanCompanies.value).length);
 const selectedAsianCompanyCount = computed(() => splitCompanies(asianCompanies.value).length);
+const diagnosticCompleted = computed(() => Boolean(cookieTestResult.value));
+const resultResetPending = computed(() => Boolean(matchResetNotice.value) && !hasMatchExecutionState());
+const resultResetOverviewCards = computed(() => {
+    if (!matchResetNotice.value) {
+        return [];
+    }
+    return [
+        { label: '比赛链接', value: cutDisplayText(matchResetNotice.value.matchUrl || '-', 42), fullValue: matchResetNotice.value.matchUrl || '-' },
+        { label: '时间范围', value: buildResetWindowText(matchResetNotice.value.anchorStartTime, matchResetNotice.value.anchorEndTime) },
+        { label: '欧赔机构', value: `${matchResetNotice.value.europeanCompanyCount} 家` },
+        { label: '亚盘机构', value: `${matchResetNotice.value.asianCompanyCount} 家` },
+    ];
+});
 const analysisSucceeded = computed(() => Boolean(analysisResult.value?.final_result?.success && finalStageDraftText.value.trim()));
 const stagePreviewCount = computed(() => Object.keys(previewResult.value?.stages || {}).length);
 const europeanStageText = computed(() => formatAnalysisText(europeanStageDraftText.value || analysisResult.value?.european_result?.raw_response || analysisResult.value?.european_result?.error_message || '暂无欧赔分析结果'));
@@ -114,7 +154,7 @@ const asianBaseStageText = computed(() => formatAnalysisText(asianBaseStageDraft
 const finalStageText = computed(() => formatAnalysisText(finalStageDraftText.value || analysisResult.value?.final_result?.raw_response || analysisResult.value?.raw_response || analysisResult.value?.final_result?.error_message || analysisResult.value?.error_message || '暂无最终综合分析结果'));
 const analysisDisplayText = computed(() => {
     if (!analysisResult.value && !europeanStageDraftText.value.trim() && !asianBaseStageDraftText.value.trim() && !finalStageDraftText.value.trim()) {
-        return '还没有分步分析结果，请先按欧赔分析 → 亚盘基础分析 → 最终综合分析的顺序逐步执行。';
+        return '还没有分步分析结果。欧赔分析和亚盘基础分析可以任选先执行；最终综合分析需要先有亚盘基础结论。';
     }
     return [
         '【欧赔分析】',
@@ -133,7 +173,7 @@ const analysisView = computed(() => analysisSucceeded.value
 const analysisSectionCards = computed(() => analysisSucceeded.value ? buildAnalysisSectionCards(analysisView.value) : []);
 const splitWorkflowSteps = computed(() => {
     const inputDone = canSubmit.value;
-    const diagnosticDone = Boolean(cookieTestResult.value?.valid);
+    const diagnosticDone = diagnosticCompleted.value;
     const structuredDone = Boolean(structuredResult.value);
     const europeanDone = Boolean(europeanStageDraftText.value.trim());
     const asianBaseDone = Boolean(asianBaseStageDraftText.value.trim());
@@ -144,12 +184,12 @@ const splitWorkflowSteps = computed(() => {
             ? 'diagnostic'
             : !structuredDone
                 ? 'structured'
-                : !europeanDone
-                    ? 'european'
-                    : !asianBaseDone
-                        ? 'asian_base'
-                        : !finalDone
-                            ? 'final'
+                : !asianBaseDone
+                    ? 'asian_base'
+                    : !finalDone
+                        ? 'final'
+                        : !europeanDone
+                            ? 'european'
                             : 'final';
     return [
         {
@@ -177,21 +217,21 @@ const splitWorkflowSteps = computed(() => {
             key: 'european',
             label: '欧赔分析',
             statusLabel: europeanDone ? '已完成' : currentKey === 'european' ? '当前步骤' : '待执行',
-            description: '正式分析开始后，第一阶段只基于欧赔数据输出阶段性结论。',
+            description: '欧赔分析只基于欧赔清洗数据输出阶段性结论，可与亚盘分析独立执行。',
             state: europeanDone ? 'done' : currentKey === 'european' ? 'current' : 'idle',
         },
         {
             key: 'asian_base',
             label: '亚盘基础分析',
             statusLabel: asianBaseDone ? '已完成' : currentKey === 'asian_base' ? '当前步骤' : '待执行',
-            description: '第二阶段结合亚盘主盘与欧赔上下文，输出亚盘基础判断。',
+            description: '亚盘基础分析只基于亚盘清洗数据输出基础判断，不依赖欧赔结论。',
             state: asianBaseDone ? 'done' : currentKey === 'asian_base' ? 'current' : 'idle',
         },
         {
             key: 'final',
             label: '最终综合分析',
             statusLabel: finalDone ? '已完成' : currentKey === 'final' ? '当前步骤' : '待执行',
-            description: '最后综合欧赔与亚盘阶段结论，得到最终业务判断。',
+            description: '最终综合分析基于亚盘基础结论和亚盘清洗数据，得到最终业务判断。',
             state: finalDone ? 'done' : currentKey === 'final' ? 'current' : 'idle',
         },
     ];
@@ -279,7 +319,7 @@ const analysisStageCards = computed(() => {
             fullText: asianBaseStageText.value,
             draftText: asianBaseStageDraftText.value,
             runLabel: loadingStageKey.value === 'asian_base' ? '执行中...' : '执行亚盘基础分析',
-            runDisabled: !hasStructured || !europeanStageDraftText.value.trim() || Boolean(loadingStageKey.value),
+            runDisabled: !hasStructured || Boolean(loadingStageKey.value),
             runLoading: loadingStageKey.value === 'asian_base',
             fields: [
                 { label: '方向', value: asianSummary?.direction || '-' },
@@ -298,11 +338,11 @@ const analysisStageCards = computed(() => {
             fullText: finalStageText.value,
             draftText: finalStageDraftText.value,
             runLabel: loadingStageKey.value === 'final' ? '执行中...' : '执行最终综合分析',
-            runDisabled: !hasStructured || !europeanStageDraftText.value.trim() || !asianBaseStageDraftText.value.trim() || Boolean(loadingStageKey.value),
+            runDisabled: !hasStructured || !asianBaseStageDraftText.value.trim() || Boolean(loadingStageKey.value),
             runLoading: loadingStageKey.value === 'final',
             fields: [
                 { label: '最终方向', value: finalSummary?.final_direction || '-' },
-                { label: '欧亚一致性', value: finalSummary?.cross_market_consensus || '待确认' },
+                { label: '亚盘链路一致性', value: finalSummary?.cross_market_consensus || '待确认' },
                 { label: '风险等级', value: finalSummary?.risk_level || '-' },
             ],
         },
@@ -433,6 +473,12 @@ function getAnalysisAdviceCardData() {
 }
 function cutDisplayText(value, maxLength) {
     return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value;
+}
+function formatResetTimeValue(value) {
+    return value ? value.replace('T', ' ') : '未设置';
+}
+function buildResetWindowText(start, end) {
+    return `${formatResetTimeValue(start)} -> ${formatResetTimeValue(end)}`;
 }
 function getStageStatusText(result, draftText = '') {
     if (draftText.trim()) {
@@ -575,10 +621,28 @@ async function copyText(text, successText) { try {
 catch {
     setError('复制失败，请手动复制。');
 } }
+function hasMatchExecutionState() {
+    return Boolean(cookieTestResult.value
+        || structuredResult.value
+        || previewResult.value
+        || analysisResult.value
+        || europeanStageDraftText.value.trim()
+        || asianBaseStageDraftText.value.trim()
+        || finalStageDraftText.value.trim());
+}
+function resetMatchExecutionState() {
+    cookieTestResult.value = null;
+    structuredResult.value = null;
+    previewResult.value = null;
+    analysisResult.value = null;
+    europeanStageDraftText.value = '';
+    asianBaseStageDraftText.value = '';
+    finalStageDraftText.value = '';
+}
 function getUpstreamStageTexts(stage) {
     return {
-        european: stage === 'european' ? null : europeanStageDraftText.value,
-        asian_base: stage === 'final' ? asianBaseStageDraftText.value : null,
+        european: null,
+        asian_base: stage === 'final' || stage === undefined ? asianBaseStageDraftText.value : null,
     };
 }
 function applyStageRunResult(result) {
@@ -595,10 +659,6 @@ function applyStageRunResult(result) {
     };
     if (result.stage === 'european') {
         europeanStageDraftText.value = result.stage_result.raw_response || '';
-        asianBaseStageDraftText.value = '';
-        finalStageDraftText.value = '';
-        analysisResult.value.asian_base_result = undefined;
-        analysisResult.value.final_result = undefined;
     }
     if (result.stage === 'asian_base') {
         asianBaseStageDraftText.value = result.stage_result.raw_response || '';
@@ -615,12 +675,6 @@ function applyStageRunResult(result) {
 function updateStageDraft(stage, value) {
     if (stage === 'european') {
         europeanStageDraftText.value = value;
-        asianBaseStageDraftText.value = '';
-        finalStageDraftText.value = '';
-        if (analysisResult.value) {
-            analysisResult.value.asian_base_result = undefined;
-            analysisResult.value.final_result = undefined;
-        }
     }
     if (stage === 'asian_base') {
         asianBaseStageDraftText.value = value;
@@ -1079,7 +1133,7 @@ if (__VLS_ctx.coreInputExpanded) {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
         ...{ onClick: (__VLS_ctx.loadStructuredData) },
         ...{ class: (['secondary', __VLS_ctx.getWorkflowButtonClass('structured')]) },
-        disabled: (__VLS_ctx.loadingStructured || !__VLS_ctx.canSubmit || !__VLS_ctx.cookieTestResult?.valid),
+        disabled: (__VLS_ctx.loadingStructured || !__VLS_ctx.canSubmit || !__VLS_ctx.diagnosticCompleted),
     });
     (__VLS_ctx.loadingStructured ? '第3步 解析中...' : '第3步 结构化解析');
     __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
@@ -1105,7 +1159,7 @@ if (__VLS_ctx.coreInputExpanded) {
                 __VLS_ctx.runStage('asian_base');
             } },
         ...{ class: (['secondary', __VLS_ctx.getWorkflowButtonClass('asian_base')]) },
-        disabled: (__VLS_ctx.loadingStageKey === 'asian_base' || !__VLS_ctx.canSubmit || !__VLS_ctx.structuredResult || !__VLS_ctx.europeanStageDraftText.trim()),
+        disabled: (__VLS_ctx.loadingStageKey === 'asian_base' || !__VLS_ctx.canSubmit || !__VLS_ctx.structuredResult),
     });
     (__VLS_ctx.loadingStageKey === 'asian_base' ? '第5步 执行中...' : '第5步 亚盘基础分析');
     __VLS_asFunctionalElement(__VLS_intrinsicElements.button, __VLS_intrinsicElements.button)({
@@ -1115,7 +1169,7 @@ if (__VLS_ctx.coreInputExpanded) {
                 __VLS_ctx.runStage('final');
             } },
         ...{ class: (['secondary', __VLS_ctx.getWorkflowButtonClass('final')]) },
-        disabled: (__VLS_ctx.loadingStageKey === 'final' || !__VLS_ctx.canSubmit || !__VLS_ctx.structuredResult || !__VLS_ctx.europeanStageDraftText.trim() || !__VLS_ctx.asianBaseStageDraftText.trim()),
+        disabled: (__VLS_ctx.loadingStageKey === 'final' || !__VLS_ctx.canSubmit || !__VLS_ctx.structuredResult || !__VLS_ctx.asianBaseStageDraftText.trim()),
     });
     (__VLS_ctx.loadingStageKey === 'final' ? '第6步 执行中...' : '第6步 最终综合分析');
     __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
@@ -1551,6 +1605,36 @@ if (__VLS_ctx.successMessage) {
     });
     (__VLS_ctx.successMessage);
 }
+if (__VLS_ctx.resultResetPending && __VLS_ctx.matchResetNotice) {
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+        ...{ class: "module-status-card info reset-empty-state-card" },
+    });
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.strong, __VLS_intrinsicElements.strong)({});
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+        ...{ class: "summary-grid reset-empty-state-grid" },
+    });
+    for (const [item] of __VLS_getVForSourceType((__VLS_ctx.resultResetOverviewCards))) {
+        __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
+            key: (item.label),
+            ...{ class: "summary-card result-summary-card reset-empty-state-item" },
+        });
+        __VLS_asFunctionalElement(__VLS_intrinsicElements.span, __VLS_intrinsicElements.span)({});
+        (item.label);
+        __VLS_asFunctionalElement(__VLS_intrinsicElements.strong, __VLS_intrinsicElements.strong)({
+            title: (item.fullValue || item.value),
+        });
+        (item.value);
+    }
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.ul, __VLS_intrinsicElements.ul)({
+        ...{ class: "guide-list compact-list reset-empty-state-list" },
+    });
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.li, __VLS_intrinsicElements.li)({});
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.li, __VLS_intrinsicElements.li)({});
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.li, __VLS_intrinsicElements.li)({});
+    __VLS_asFunctionalElement(__VLS_intrinsicElements.small, __VLS_intrinsicElements.small)({});
+    (__VLS_ctx.formatDate(__VLS_ctx.matchResetNotice.resetAt));
+}
 if (__VLS_ctx.cookieTestResult) {
     __VLS_asFunctionalElement(__VLS_intrinsicElements.div, __VLS_intrinsicElements.div)({
         ...{ class: "subtle-card diagnosis-shell" },
@@ -1800,6 +1884,17 @@ else if (__VLS_ctx.activeResultTab === 'analysis') {
 /** @type {__VLS_StyleScopedClasses['busy-banner']} */ ;
 /** @type {__VLS_StyleScopedClasses['error-banner']} */ ;
 /** @type {__VLS_StyleScopedClasses['success-banner']} */ ;
+/** @type {__VLS_StyleScopedClasses['module-status-card']} */ ;
+/** @type {__VLS_StyleScopedClasses['info']} */ ;
+/** @type {__VLS_StyleScopedClasses['reset-empty-state-card']} */ ;
+/** @type {__VLS_StyleScopedClasses['summary-grid']} */ ;
+/** @type {__VLS_StyleScopedClasses['reset-empty-state-grid']} */ ;
+/** @type {__VLS_StyleScopedClasses['summary-card']} */ ;
+/** @type {__VLS_StyleScopedClasses['result-summary-card']} */ ;
+/** @type {__VLS_StyleScopedClasses['reset-empty-state-item']} */ ;
+/** @type {__VLS_StyleScopedClasses['guide-list']} */ ;
+/** @type {__VLS_StyleScopedClasses['compact-list']} */ ;
+/** @type {__VLS_StyleScopedClasses['reset-empty-state-list']} */ ;
 /** @type {__VLS_StyleScopedClasses['subtle-card']} */ ;
 /** @type {__VLS_StyleScopedClasses['diagnosis-shell']} */ ;
 /** @type {__VLS_StyleScopedClasses['status-grid']} */ ;
@@ -1858,6 +1953,7 @@ const __VLS_self = (await import('vue')).defineComponent({
             loadingStageKey: loadingStageKey,
             errorMessage: errorMessage,
             successMessage: successMessage,
+            matchResetNotice: matchResetNotice,
             structuredResult: structuredResult,
             analysisResult: analysisResult,
             cookieTestResult: cookieTestResult,
@@ -1880,6 +1976,9 @@ const __VLS_self = (await import('vue')).defineComponent({
             siteLabel: siteLabel,
             selectedEuropeanCompanyCount: selectedEuropeanCompanyCount,
             selectedAsianCompanyCount: selectedAsianCompanyCount,
+            diagnosticCompleted: diagnosticCompleted,
+            resultResetPending: resultResetPending,
+            resultResetOverviewCards: resultResetOverviewCards,
             analysisSucceeded: analysisSucceeded,
             stagePreviewCount: stagePreviewCount,
             finalStageText: finalStageText,

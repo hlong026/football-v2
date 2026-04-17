@@ -49,30 +49,22 @@ class PipelineSummaryService:
                 company_scope_summary=self._build_company_scope(request.bookmaker_selection.asian),
             )
 
-        european_view = european_result.summary.european_view if european_result and european_result.summary else self._extract_stage_text(european_result)
         asian_view = asian_base_result.summary.asian_base_view if asian_base_result and asian_base_result.summary else self._extract_stage_text(asian_base_result)
-        final_direction = direction or self._merge_direction(
-            european_result.summary.direction if european_result and european_result.summary else None,
-            asian_base_result.summary.direction if asian_base_result and asian_base_result.summary else None,
-        )
+        final_direction = direction or (asian_base_result.summary.direction if asian_base_result and asian_base_result.summary else None)
         return StageAnalysisSummary(
             direction=final_direction,
             statement=statement,
             final_direction=final_direction,
             final_statement=statement,
-            european_view=european_view,
             asian_base_view=asian_view,
-            cross_market_consensus=self._detect_consensus(final_direction, european_result, asian_base_result, text),
+            cross_market_consensus=self._detect_consensus(final_direction, None, asian_base_result, text),
             key_points=self._pick_key_points(lines),
             key_evidence=self._pick_evidence(lines),
             risk_level=self._detect_risk_level(text),
             risk_notes=self._pick_risk_notes(lines),
             action_advice=self._pick_advice(lines),
             time_scope_summary=time_scope_summary,
-            company_scope_summary=(
-                f"欧赔机构：{self._build_company_scope(request.bookmaker_selection.european)}；"
-                f"亚盘机构：{self._build_company_scope(request.bookmaker_selection.asian)}"
-            ),
+            company_scope_summary=f"亚盘机构：{self._build_company_scope(request.bookmaker_selection.asian)}",
         )
 
     def _extract_lines(self, text: str) -> list[str]:

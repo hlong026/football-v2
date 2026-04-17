@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 
 from app.models.schemas import (
@@ -230,7 +232,6 @@ class PipelineAnalysisService:
             structured,
             cleaned,
             asian_text,
-            european_result=european_result,
         ) if asian_text else None
         return european_result, asian_result
 
@@ -252,11 +253,7 @@ class PipelineAnalysisService:
         )
 
         prerequisite_error = None
-        if stage == AnalysisStage.ASIAN_BASE and european_result is None:
-            prerequisite_error = "请先执行欧赔分析，或先填写欧赔阶段编辑结果。"
-        elif stage == AnalysisStage.FINAL and european_result is None:
-            prerequisite_error = "请先执行欧赔分析，或先填写欧赔阶段编辑结果。"
-        elif stage == AnalysisStage.FINAL and asian_base_result is None:
+        if stage == AnalysisStage.FINAL and asian_base_result is None:
             prerequisite_error = "请先执行亚盘基础分析，或先填写亚盘基础阶段编辑结果。"
 
         if prerequisite_error:
@@ -342,31 +339,31 @@ class PipelineAnalysisService:
             )
 
         endpoint = self._normalize_endpoint(request.ai_config.api_endpoint)
-        european_result = await self._run_stage(
-            request.ai_config,
-            api_key,
-            endpoint,
-            AnalysisStage.EUROPEAN,
-            preview.stages[AnalysisStage.EUROPEAN.value],
-            request=request,
-            cleaned=cleaned,
-        )
-        asian_result = await self._run_stage(
-            request.ai_config,
-            api_key,
-            endpoint,
-            AnalysisStage.ASIAN_BASE,
-            preview.stages[AnalysisStage.ASIAN_BASE.value],
-            request=request,
-            cleaned=cleaned,
-            european_result=european_result,
+        european_result, asian_result = await asyncio.gather(
+            self._run_stage(
+                request.ai_config,
+                api_key,
+                endpoint,
+                AnalysisStage.EUROPEAN,
+                preview.stages[AnalysisStage.EUROPEAN.value],
+                request=request,
+                cleaned=cleaned,
+            ),
+            self._run_stage(
+                request.ai_config,
+                api_key,
+                endpoint,
+                AnalysisStage.ASIAN_BASE,
+                preview.stages[AnalysisStage.ASIAN_BASE.value],
+                request=request,
+                cleaned=cleaned,
+            ),
         )
         final_preview = self.prompt_service.build_stage_preview(
             AnalysisStage.FINAL,
             request,
             structured,
             cleaned,
-            european_result=european_result,
             asian_base_result=asian_result,
         )
         final_result = await self._run_stage(
@@ -377,14 +374,12 @@ class PipelineAnalysisService:
             final_preview,
             request=request,
             cleaned=cleaned,
-            european_result=european_result,
             asian_base_result=asian_result,
         )
         final_preview_response = self.build_preview(
             request,
             structured,
             cleaned,
-            european_result=european_result,
             asian_base_result=asian_result,
         )
 

@@ -208,7 +208,7 @@ const asianBaseStageText = computed(() => formatAnalysisText(asianBaseStageDraft
 const finalStageText = computed(() => formatAnalysisText(finalStageDraftText.value || analysisResult.value?.final_result?.raw_response || analysisResult.value?.raw_response || analysisResult.value?.final_result?.error_message || analysisResult.value?.error_message || '暂无最终综合分析结果'))
 const analysisDisplayText = computed(() => {
   if (!analysisResult.value && !europeanStageDraftText.value.trim() && !asianBaseStageDraftText.value.trim() && !finalStageDraftText.value.trim()) {
-    return '还没有分步分析结果，请先按欧赔分析 → 亚盘基础分析 → 最终综合分析的顺序逐步执行。'
+    return '还没有分步分析结果。欧赔分析和亚盘基础分析可以任选先执行；最终综合分析需要先有亚盘基础结论。'
   }
   return [
     '【欧赔分析】',
@@ -239,12 +239,12 @@ const splitWorkflowSteps = computed<WorkflowStepItem[]>(() => {
       ? 'diagnostic'
       : !structuredDone
         ? 'structured'
-        : !europeanDone
-          ? 'european'
-          : !asianBaseDone
-            ? 'asian_base'
-            : !finalDone
-              ? 'final'
+        : !asianBaseDone
+          ? 'asian_base'
+          : !finalDone
+            ? 'final'
+            : !europeanDone
+              ? 'european'
               : 'final'
 
   return [
@@ -273,21 +273,21 @@ const splitWorkflowSteps = computed<WorkflowStepItem[]>(() => {
       key: 'european',
       label: '欧赔分析',
       statusLabel: europeanDone ? '已完成' : currentKey === 'european' ? '当前步骤' : '待执行',
-      description: '正式分析开始后，第一阶段只基于欧赔数据输出阶段性结论。',
+      description: '欧赔分析只基于欧赔清洗数据输出阶段性结论，可与亚盘分析独立执行。',
       state: europeanDone ? 'done' : currentKey === 'european' ? 'current' : 'idle',
     },
     {
       key: 'asian_base',
       label: '亚盘基础分析',
       statusLabel: asianBaseDone ? '已完成' : currentKey === 'asian_base' ? '当前步骤' : '待执行',
-      description: '第二阶段结合亚盘主盘与欧赔上下文，输出亚盘基础判断。',
+      description: '亚盘基础分析只基于亚盘清洗数据输出基础判断，不依赖欧赔结论。',
       state: asianBaseDone ? 'done' : currentKey === 'asian_base' ? 'current' : 'idle',
     },
     {
       key: 'final',
       label: '最终综合分析',
       statusLabel: finalDone ? '已完成' : currentKey === 'final' ? '当前步骤' : '待执行',
-      description: '最后综合欧赔与亚盘阶段结论，得到最终业务判断。',
+      description: '最终综合分析基于亚盘基础结论和亚盘清洗数据，得到最终业务判断。',
       state: finalDone ? 'done' : currentKey === 'final' ? 'current' : 'idle',
     },
   ]
@@ -389,7 +389,7 @@ const analysisStageCards = computed<Array<{
       fullText: asianBaseStageText.value,
       draftText: asianBaseStageDraftText.value,
       runLabel: loadingStageKey.value === 'asian_base' ? '执行中...' : '执行亚盘基础分析',
-      runDisabled: !hasStructured || !europeanStageDraftText.value.trim() || Boolean(loadingStageKey.value),
+      runDisabled: !hasStructured || Boolean(loadingStageKey.value),
       runLoading: loadingStageKey.value === 'asian_base',
       fields: [
         { label: '方向', value: asianSummary?.direction || '-' },
@@ -408,11 +408,11 @@ const analysisStageCards = computed<Array<{
       fullText: finalStageText.value,
       draftText: finalStageDraftText.value,
       runLabel: loadingStageKey.value === 'final' ? '执行中...' : '执行最终综合分析',
-      runDisabled: !hasStructured || !europeanStageDraftText.value.trim() || !asianBaseStageDraftText.value.trim() || Boolean(loadingStageKey.value),
+      runDisabled: !hasStructured || !asianBaseStageDraftText.value.trim() || Boolean(loadingStageKey.value),
       runLoading: loadingStageKey.value === 'final',
       fields: [
         { label: '最终方向', value: finalSummary?.final_direction || '-' },
-        { label: '欧亚一致性', value: finalSummary?.cross_market_consensus || '待确认' },
+        { label: '亚盘链路一致性', value: finalSummary?.cross_market_consensus || '待确认' },
         { label: '风险等级', value: finalSummary?.risk_level || '-' },
       ],
     },
@@ -749,8 +749,8 @@ function resetMatchExecutionState() {
 
 function getUpstreamStageTexts(stage?: StageKey) {
   return {
-    european: stage === 'european' ? null : europeanStageDraftText.value,
-    asian_base: stage === 'final' ? asianBaseStageDraftText.value : null,
+    european: null,
+    asian_base: stage === 'final' || stage === undefined ? asianBaseStageDraftText.value : null,
   }
 }
 
@@ -768,10 +768,6 @@ function applyStageRunResult(result: StageRunResult) {
   }
   if (result.stage === 'european') {
     europeanStageDraftText.value = result.stage_result.raw_response || ''
-    asianBaseStageDraftText.value = ''
-    finalStageDraftText.value = ''
-    analysisResult.value.asian_base_result = undefined
-    analysisResult.value.final_result = undefined
   }
   if (result.stage === 'asian_base') {
     asianBaseStageDraftText.value = result.stage_result.raw_response || ''
@@ -789,12 +785,6 @@ function applyStageRunResult(result: StageRunResult) {
 function updateStageDraft(stage: StageKey, value: string) {
   if (stage === 'european') {
     europeanStageDraftText.value = value
-    asianBaseStageDraftText.value = ''
-    finalStageDraftText.value = ''
-    if (analysisResult.value) {
-      analysisResult.value.asian_base_result = undefined
-      analysisResult.value.final_result = undefined
-    }
   }
   if (stage === 'asian_base') {
     asianBaseStageDraftText.value = value
@@ -1097,15 +1087,15 @@ async function testModelConnection() {
             </div>
             <div class="module-status-card info">
               <strong>第 4、5、6 步改为手动推进</strong>
-              <span>现在需要你自己按顺序点击：欧赔分析 -> 亚盘基础分析 -> 最终综合分析。每一步执行后，都可以在右侧直接修改文本，再进入下一步。</span>
+              <span>现在欧赔分析和亚盘基础分析互相独立，可任选先执行；最终综合分析只需要先完成亚盘基础分析。每一步执行后，都可以在右侧直接修改文本。</span>
             </div>
             <div class="action-row primary-action-row vertical-action-row">
               <button :class="['secondary', getWorkflowButtonClass('diagnostic')]" :disabled="loadingCookieTest || !canSubmit" @click="testCookieConnection">{{ loadingCookieTest ? '第2步 测试中...' : '第2步 先做抓取诊断' }}</button>
               <button :class="['secondary', getWorkflowButtonClass('structured')]" :disabled="loadingStructured || !canSubmit || !diagnosticCompleted" @click="loadStructuredData">{{ loadingStructured ? '第3步 解析中...' : '第3步 结构化解析' }}</button>
               <button class="secondary" :disabled="loadingPreview || !canSubmit" @click="previewAnalysis">{{ loadingPreview ? '预览生成中...' : '可选：分析输入预览' }}</button>
               <button :class="['secondary', getWorkflowButtonClass('european')]" :disabled="loadingStageKey === 'european' || !canSubmit || !structuredResult" @click="runStage('european')">{{ loadingStageKey === 'european' ? '第4步 执行中...' : '第4步 欧赔分析' }}</button>
-              <button :class="['secondary', getWorkflowButtonClass('asian_base')]" :disabled="loadingStageKey === 'asian_base' || !canSubmit || !structuredResult || !europeanStageDraftText.trim()" @click="runStage('asian_base')">{{ loadingStageKey === 'asian_base' ? '第5步 执行中...' : '第5步 亚盘基础分析' }}</button>
-              <button :class="['secondary', getWorkflowButtonClass('final')]" :disabled="loadingStageKey === 'final' || !canSubmit || !structuredResult || !europeanStageDraftText.trim() || !asianBaseStageDraftText.trim()" @click="runStage('final')">{{ loadingStageKey === 'final' ? '第6步 执行中...' : '第6步 最终综合分析' }}</button>
+              <button :class="['secondary', getWorkflowButtonClass('asian_base')]" :disabled="loadingStageKey === 'asian_base' || !canSubmit || !structuredResult" @click="runStage('asian_base')">{{ loadingStageKey === 'asian_base' ? '第5步 执行中...' : '第5步 亚盘基础分析' }}</button>
+              <button :class="['secondary', getWorkflowButtonClass('final')]" :disabled="loadingStageKey === 'final' || !canSubmit || !structuredResult || !asianBaseStageDraftText.trim()" @click="runStage('final')">{{ loadingStageKey === 'final' ? '第6步 执行中...' : '第6步 最终综合分析' }}</button>
             </div>
             <div class="empty-tip-card compact-tip-card"><div class="empty-tip-head"><strong>链接格式示例</strong><span>{{ sampleMatchUrl }}</span></div></div>
           </template>
@@ -1210,7 +1200,7 @@ async function testModelConnection() {
           </div>
           <ul class="guide-list compact-list reset-empty-state-list">
             <li>下一步建议：先做“第 2 步 抓取诊断”，确认当前链接、时间和机构范围对应的数据能抓到。</li>
-            <li>诊断通过后，再执行“第 3 步 结构化解析”，然后按“欧赔分析 -> 亚盘基础分析 -> 最终综合分析”继续。</li>
+            <li>诊断通过后，再执行“第 3 步 结构化解析”；欧赔分析和亚盘基础分析可任选先做，最终综合分析需先完成亚盘基础分析。</li>
             <li>模型参数、提示词、Cookie 和机构范围都已保留，无需重新填写。</li>
           </ul>
           <small>重置时间：{{ formatDate(matchResetNotice.resetAt) }}</small>

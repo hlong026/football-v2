@@ -35,14 +35,12 @@ class PipelinePromptService:
                 request,
                 structured,
                 cleaned,
-                european_result=european_result,
             ),
             AnalysisStage.FINAL.value: self.build_stage_preview(
                 AnalysisStage.FINAL,
                 request,
                 structured,
                 cleaned,
-                european_result=european_result,
                 asian_base_result=asian_base_result,
             ),
         }
@@ -90,11 +88,11 @@ class PipelinePromptService:
         stage_statement = {
             AnalysisStage.EUROPEAN: "你当前只负责欧赔阶段分析。",
             AnalysisStage.ASIAN_BASE: "你当前只负责亚盘基础阶段分析。",
-            AnalysisStage.FINAL: "你当前负责最终综合阶段分析，需要整合前序结论与当前亚盘清洗数据。",
+            AnalysisStage.FINAL: "你当前负责最终综合阶段分析，需要整合亚盘基础结论与当前亚盘清洗数据。",
         }[stage]
         return (
             f"{stage_statement}"
-            "只能基于当前请求里这一场比赛的清洗后分层数据和已提供的上游阶段结论进行分析。"
+            "只能基于当前请求里这一场比赛的清洗后分层数据，以及本阶段明确允许使用的上游阶段结论进行分析。"
             "禁止引入其他比赛、外部新闻、数据库、训练语料中的隐含事实或主观猜测。"
             f"所有时间统一按 {self.display_timezone_label} 理解与表述。"
             "如果某项数据没有提供，必须明确说明缺失，不能脑补。"
@@ -114,15 +112,9 @@ class PipelinePromptService:
         custom_prompt = prompt_config.prompt_text.strip() or self._get_default_stage_instruction(stage)
         stage_label = self._get_stage_label(stage)
         upstream_text = ""
-        if stage == AnalysisStage.ASIAN_BASE:
-            upstream_text = (
-                "\n上游阶段结论说明：\n"
-                f"- 欧赔阶段结论：{self._get_stage_result_text(european_result)}\n"
-            )
         if stage == AnalysisStage.FINAL:
             upstream_text = (
                 "\n上游阶段结论说明：\n"
-                f"- 欧赔阶段结论：{self._get_stage_result_text(european_result)}\n"
                 f"- 亚盘基础阶段结论：{self._get_stage_result_text(asian_base_result)}\n"
             )
         return (
@@ -180,22 +172,8 @@ class PipelinePromptService:
         if stage == AnalysisStage.ASIAN_BASE:
             return {
                 **common_payload,
-                "upstream_results": {
-                    "european": self._serialize_stage_result(european_result, "等待欧赔阶段执行"),
-                },
                 "bookmaker_selection": {
                     "asian": request.bookmaker_selection.asian,
-                },
-                "reference_european": {
-                    "bookmaker_selection": {
-                        "european": request.bookmaker_selection.european,
-                    },
-                    "company_mappings": [
-                        item.model_dump(mode="json")
-                        for item in cleaned.company_mappings
-                        if item.market == "european"
-                    ],
-                    "european": [item.model_dump(mode="json") for item in cleaned.european],
                 },
                 "company_mappings": [
                     item.model_dump(mode="json")
@@ -212,11 +190,10 @@ class PipelinePromptService:
         return {
             **common_payload,
             "upstream_results": {
-                "european": self._serialize_stage_result(european_result, "等待欧赔阶段执行"),
                 "asian_base": self._serialize_stage_result(asian_base_result, "等待亚盘基础阶段执行"),
             },
             "asian_handicap": [item.model_dump(mode="json") for item in cleaned.asian_handicap],
-            "final_goal": "基于欧赔结论、亚盘基础结论与清洗后的亚盘数据，输出体现最终分析目的的综合结论。",
+            "final_goal": "基于亚盘基础结论与清洗后的亚盘数据，输出体现最终分析目的的综合结论。",
         }
 
     def _serialize_stage_result(self, result: StageAnalysisResult | None, fallback: str) -> dict[str, Any]:
@@ -246,7 +223,7 @@ class PipelinePromptService:
         defaults = {
             AnalysisStage.EUROPEAN: "请基于清洗后的欧赔数据，分析概率、凯利指数和赔付率在指定时间与指定机构范围内的变化，并给出欧赔阶段结论。",
             AnalysisStage.ASIAN_BASE: "请基于清洗后的亚盘数据，分析主盘变化、主客水位变化和盘口节奏，给出亚盘基础阶段结论。",
-            AnalysisStage.FINAL: "请结合欧赔阶段结论、亚盘基础阶段结论和清洗后的亚盘数据，输出面向最终业务目标的综合判断。",
+            AnalysisStage.FINAL: "请结合亚盘基础阶段结论和清洗后的亚盘数据，输出面向最终业务目标的综合判断。",
         }
         return defaults[stage]
 
