@@ -42,6 +42,14 @@ import type { AIConnectionTestResult, AnalysisConclusionCard, AnalysisRunResult,
 
 type SupportedAIProvider = 'deepseek' | 'openai' | 'doubao'
 type StageKey = 'european' | 'asian_base' | 'final'
+type MatchResetNotice = {
+  matchUrl: string
+  anchorStartTime: string
+  anchorEndTime: string
+  europeanCompanyCount: number
+  asianCompanyCount: number
+  resetAt: string
+}
 
 const providerPresets: Record<SupportedAIProvider, { label: string; apiEndpoint: string; modelName: string; helperText: string }> = {
   deepseek: {
@@ -105,6 +113,7 @@ const loadingModelConnection = ref(false)
 const loadingStageKey = ref<StageKey | null>(null)
 const errorMessage = ref('')
 const successMessage = ref('')
+const matchResetNotice = ref<MatchResetNotice | null>(null)
 const structuredResult = ref<StructuredMatchLite | null>(null)
 const previewResult = ref<any>(null)
 const analysisResult = ref<AnalysisRunResult | null>(null)
@@ -148,11 +157,27 @@ watch([matchUrl, anchorStartTime, anchorEndTime, europeanCompanies, asianCompani
     return
   }
   const hasChanged = currentValues.some((value, index) => value !== previousValues[index])
-  if (!hasChanged || !hasMatchExecutionState()) {
+  if (!hasChanged) {
     return
   }
-  resetMatchExecutionState()
-  setSuccess('比赛上下文已更新，右侧结果已清空。请重新执行抓取诊断、结构化解析和三阶段分析。')
+  const hadExecutionState = hasMatchExecutionState()
+
+  if (hadExecutionState) {
+    resetMatchExecutionState()
+    activeResultTab.value = 'structured'
+    setSuccess('比赛上下文已更新，右侧结果已清空。请重新执行抓取诊断、结构化解析和三阶段分析。')
+  }
+
+  if (hadExecutionState || resultResetPending.value) {
+    matchResetNotice.value = {
+      matchUrl: matchUrl.value.trim(),
+      anchorStartTime: anchorStartTime.value,
+      anchorEndTime: anchorEndTime.value,
+      europeanCompanyCount: selectedEuropeanCompanyCount.value,
+      asianCompanyCount: selectedAsianCompanyCount.value,
+      resetAt: new Date().toISOString(),
+    }
+  }
   saveDraft()
 })
 
@@ -164,6 +189,18 @@ const siteLabel = computed(() => (site.value === 'okooo' ? '澳客网' : site.va
 const selectedEuropeanCompanyCount = computed(() => splitCompanies(europeanCompanies.value).length)
 const selectedAsianCompanyCount = computed(() => splitCompanies(asianCompanies.value).length)
 const diagnosticCompleted = computed(() => Boolean(cookieTestResult.value))
+const resultResetPending = computed(() => Boolean(matchResetNotice.value) && !hasMatchExecutionState())
+const resultResetOverviewCards = computed(() => {
+  if (!matchResetNotice.value) {
+    return []
+  }
+  return [
+    { label: '比赛链接', value: cutDisplayText(matchResetNotice.value.matchUrl || '-', 42), fullValue: matchResetNotice.value.matchUrl || '-' },
+    { label: '时间范围', value: buildResetWindowText(matchResetNotice.value.anchorStartTime, matchResetNotice.value.anchorEndTime) },
+    { label: '欧赔机构', value: `${matchResetNotice.value.europeanCompanyCount} 家` },
+    { label: '亚盘机构', value: `${matchResetNotice.value.asianCompanyCount} 家` },
+  ]
+})
 const analysisSucceeded = computed(() => Boolean(analysisResult.value?.final_result?.success && finalStageDraftText.value.trim()))
 const stagePreviewCount = computed(() => Object.keys(previewResult.value?.stages || {}).length)
 const europeanStageText = computed(() => formatAnalysisText(europeanStageDraftText.value || analysisResult.value?.european_result?.raw_response || analysisResult.value?.european_result?.error_message || '暂无欧赔分析结果'))
@@ -534,6 +571,14 @@ function getAnalysisAdviceCardData() {
 
 function cutDisplayText(value: string, maxLength: number) {
   return value.length > maxLength ? `${value.slice(0, maxLength)}…` : value
+}
+
+function formatResetTimeValue(value: string) {
+  return value ? value.replace('T', ' ') : '未设置'
+}
+
+function buildResetWindowText(start: string, end: string) {
+  return `${formatResetTimeValue(start)} -> ${formatResetTimeValue(end)}`
 }
 
 function getStageStatusText(result?: StageAnalysisResult | null, draftText = '') {
@@ -1154,6 +1199,22 @@ async function testModelConnection() {
         <p v-if="isBusy" class="busy-banner">当前正在处理，请稍候。</p>
         <p v-if="errorMessage" class="error-banner">{{ errorMessage }}</p>
         <p v-if="successMessage" class="success-banner">{{ successMessage }}</p>
+        <div v-if="resultResetPending && matchResetNotice" class="module-status-card info reset-empty-state-card">
+          <strong>已切换到新的比赛上下文，右侧结果已清空</strong>
+          <span>这是为了避免上一场比赛的结构化结果和分析结论混入当前比赛。请从第 2 步重新开始执行。</span>
+          <div class="summary-grid reset-empty-state-grid">
+            <div v-for="item in resultResetOverviewCards" :key="item.label" class="summary-card result-summary-card reset-empty-state-item">
+              <span>{{ item.label }}</span>
+              <strong :title="item.fullValue || item.value">{{ item.value }}</strong>
+            </div>
+          </div>
+          <ul class="guide-list compact-list reset-empty-state-list">
+            <li>下一步建议：先做“第 2 步 抓取诊断”，确认当前链接、时间和机构范围对应的数据能抓到。</li>
+            <li>诊断通过后，再执行“第 3 步 结构化解析”，然后按“欧赔分析 -> 亚盘基础分析 -> 最终综合分析”继续。</li>
+            <li>模型参数、提示词、Cookie 和机构范围都已保留，无需重新填写。</li>
+          </ul>
+          <small>重置时间：{{ formatDate(matchResetNotice.resetAt) }}</small>
+        </div>
 
         <div v-if="cookieTestResult" class="subtle-card diagnosis-shell">
           <div class="status-grid">
